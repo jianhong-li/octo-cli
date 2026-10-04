@@ -104,11 +104,11 @@ const examples: Record<string, string[]> = {
     'octo inspection reports -q db --result abnormal -l 1d --page 1 -n 10',
   ],
   'metrics query': [
-    'octo metrics query "sum(http_requests{}.as_count)" -l 1h --points 150',
+    'octo metrics query "as_count(sum(http_requests{}))" -l 1h --points 150',
     'octo metrics query "avg(cpu_usage{service=myapp})" -e test -l 2h',
   ],
   'metrics point': [
-    'octo metrics point "sum(http_requests{}.as_count)" --at 1790596560000',
+    'octo metrics point "as_count(sum(http_requests{}))" --at 1790596560000',
   ],
   'services list': ['octo services list -e online -l 1h'],
   'services entries': ['octo services entries myapp -l 1h'],
@@ -185,6 +185,59 @@ const aggregationNotes = `Aggregation:
   support sum/avg/max/min/p50/p95/p99. A wrong type/operation can return -210;
   grouping a metric field can return -222. Missing groups produce a warning.`;
 
+const logGroupableFields = `Groupable log fields:
+  Reserved string dimensions support group-by: service, level, host, source,
+  k8s.pod.name, trace_id, user.ip. Records must contain the field to form groups.
+  Common dimensions (availability/type varies by source and index):
+    Kubernetes: k8s.node.name, k8s.container.name, pod_name, node_hostname.
+    Deployment/logging: deployment, canary, log_type.
+    HTTP: status_code, sc, url, method.
+    Client/user: platform, version, user_id.
+  These examples are a starting point, not a complete field catalog. Confirm
+  on matching data with -g <field>:2; missing fields can produce empty groups.
+  Metric fields (long/double, e.g. duration) cannot be grouped (-222); a numeric
+  name such as status_code is groupable only when indexed as a string dimension.`;
+
+const metricQlNotes = `Metric QL differs from search syntax: wrap metric{tags} in an aggregation.
+  Multiple queries are labeled A/B/C. --points is a target count; the backend
+  may adjust it. Day aggregations align to UTC+8; timestamps are not shifted.
+
+Metric QL (common):
+  Space aggregation: sum(m{tags}), avg(...), min(...), max(...), count(...).
+  Histogram percentiles: p50/p95/p99/p999/p9999(m{tags}).
+  Group: sum(m{service = *}) by (service, clusterName).
+  Tag filters: tag = value, tag != value, tag = * (wildcard), tag in (a,b).
+  Commas between filters mean AND: m{service = api, env != test}.
+  PromQL's =~ operator is not supported.
+  Time functions (fn: sum/avg/min/max; rollup/advanced_rollup also accept default):
+    rollup(m, fn, interval): e.g. sum(rollup(counter{}, sum, 1m)).
+    advanced_rollup(m, fn, window, granularity): both time arguments required;
+      e.g. sum(advanced_rollup(counter{}, sum, 5m, 1m)).
+    moving_rollup(expr, fn, window): apply after space aggregation;
+      e.g. moving_rollup(sum(counter{}), sum, 5m).
+    increase(expr, window, granularity): e.g. increase(sum(counter{}), 5m, 1m).
+    Time arguments accept 30s/1m/1h/1d/1w or auto (backend-selected interval).
+  Count conversion: as_rate(sum(counter{})) (per second),
+    as_count(sum(counter{})) (count per interval). Use for Count metrics;
+    for Histograms, first count_values(histogram{}) to count observations.
+  default(expr, v) fills missing values; e.g. default(sum(m{}), 0).
+  top(expr, N, agg) selects N series; agg is avg/max/min/last;
+    e.g. top(sum(m{}) by (service), 10, max).
+  Arithmetic within one expression: sum(a{}) / 2, p99(histogram{}) * 1000.
+  Multi-query formulas using A / B are not exposed by this CLI; fetch the
+  component queries and combine locally.
+
+Grouped response (-o json): [{id, labelList, times, values}, ...].
+  labelList is a TWO-LEVEL array: labelList[i] is [{key,value}, ...] for series i;
+  values[i] is that series' samples, with values[i][j] at times[j] (epoch ms).
+  Ungrouped series may have an empty labelList. Match series by index; do not
+  flatten labelList/values together or assume the first label is the only one.
+  Save to metrics.json, then emit one TSV row per series: query id, all labels,
+  and maximum non-null sample (empty if there are no non-null samples):
+    jq -r '.[] as $q | range(0; $q.values | length) as $i |
+      [$q.id, (($q.labelList[$i] // []) | map(.key + "=" + .value) | join(",")),
+       ($q.values[$i] | map(select(. != null)) | max)] | @tsv' metrics.json`;
+
 function leafNotes(command: Command, key: string): string[] {
   const options = new Set(command.options.map((option) => option.long));
   const notes: string[] = [];
@@ -205,6 +258,7 @@ function leafNotes(command: Command, key: string): string[] {
   if (options.has('--query') && key !== 'inspection reports')
     notes.push(searchNotes);
   if (options.has('--agg')) notes.push(aggregationNotes);
+  if (key === 'logs aggregate') notes.push(logGroupableFields);
   if (options.has('--scroll-id'))
     notes.push(`Pagination: one page per invocation; hasMore=true means results are incomplete.
   Keep env, query, order/sort, and an absolute --from/--to window unchanged.
@@ -263,10 +317,7 @@ function leafNotes(command: Command, key: string): string[] {
     notes.push(
       'Change-event types include deployment.start, deployment.success, deployment.failure,\n  deployment.scale, config.change, k8s.pod.change, k8s.node.change.\n  type = deployment does not include deployment.scale; use an explicit type or deployment*.'
     );
-  if (key === 'metrics query')
-    notes.push(
-      'Metric QL differs from search syntax: wrap metric{tags} in an aggregation.\n  Multiple queries are labeled A/B/C; grouped series use matching labelList/values\n  arrays. --points is a target count; the backend may adjust it.\n  Day aggregations align to UTC+8; supplied timestamps are not shifted.'
-    );
+  if (key === 'metrics query') notes.push(metricQlNotes);
   if (key === 'metrics point')
     notes.push(
       '--at accepts epoch milliseconds, epoch seconds, or ISO timestamps; default: now.'
@@ -322,6 +373,9 @@ function leafNotes(command: Command, key: string): string[] {
 export function configureCommandHelp(program: Command): void {
   function visit(command: Command): void {
     const key = commandKey(command);
+    if (key === 'metrics query' || key === 'metrics point')
+      command.registeredArguments[0].description =
+        'Metric QL expressions (e.g. "as_count(sum(http_requests{}))")';
     const apiReference = apiPages[key.split(' ')[0]]
       ? `https://octopus-docs.zhenguanyu.com/${apiPages[key.split(' ')[0]]}`
       : openApi;
