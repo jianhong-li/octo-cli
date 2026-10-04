@@ -654,6 +654,15 @@ export function getMcpTools() {
       inputSchema: {
         type: 'object' as const,
         properties: {
+          dataSource: {
+            type: 'string',
+            description: 'Issue source: log or rum; backend default: log',
+            enum: ['log', 'rum'],
+          },
+          service: {
+            type: 'string',
+            description: 'Legacy service filter; prefer service = ... in query',
+          },
           env: envProp,
           from: fromProp,
           to: toProp,
@@ -678,6 +687,11 @@ export function getMcpTools() {
         type: 'object' as const,
         properties: {
           issueId: { type: 'string', description: 'Issue ID' },
+          dataSource: {
+            type: 'string',
+            description: 'Issue source: log or rum; backend default: log',
+            enum: ['log', 'rum'],
+          },
         },
         required: ['issueId'],
       },
@@ -1532,12 +1546,17 @@ export async function handleMcpTool(
           query: args.query as string | undefined,
           status: (args.status as string) ?? 'unresolved',
           sortType: (args.sort_type as string) ?? 'logCount',
+          dataSource: args.dataSource as string | undefined,
+          service: args.service as string | undefined,
         });
         return ok(JSON.stringify(data, null, 2));
       }
 
       case 'octo_issues_detail': {
-        const data = await client.issueDetail(String(args.issueId));
+        const data = await client.issueDetail(
+          String(args.issueId),
+          args.dataSource as string | undefined
+        );
         return ok(JSON.stringify(data, null, 2));
       }
 

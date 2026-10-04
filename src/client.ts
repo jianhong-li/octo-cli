@@ -478,16 +478,28 @@ export class OctoClient {
     sortType: string;
     status: string;
     service?: string;
+    dataSource?: string;
   }) {
     return this.post(
       '/infra-octopus-openapi/v1/log-error-tracking/issues/search',
-      params
+      {
+        ...params,
+        dataSource:
+          params.dataSource === undefined
+            ? undefined
+            : normalizeIssueDataSource(params.dataSource),
+      }
     );
   }
 
-  async issueDetail(issueId: string) {
+  async issueDetail(issueId: string, dataSource?: string) {
+    const normalizedIssueId = normalizeIssueId(issueId, 'issueId');
+    const qs =
+      dataSource === undefined
+        ? ''
+        : `?dataSource=${normalizeIssueDataSource(dataSource)}`;
     return this.get(
-      `/infra-octopus-openapi/v1/log-error-tracking/issues/${issueId}`
+      `/infra-octopus-openapi/v1/log-error-tracking/issues/${encodeURIComponent(normalizedIssueId)}${qs}`
     );
   }
 

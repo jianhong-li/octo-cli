@@ -33,7 +33,7 @@ CLI 的 help 承担命令、参数、默认值、限制、示例和输出契约�
 
 ## 明确的接口限制
 
-- **Issue search 分页**：`src/client.ts` 的 `issuesSearch`、现有 OpenAPI 手册和托管 OCT-MCP 都没有 limit/page/scroll 参数；不能假设添加字段后就能分页。help 说明当前限制及缩小查询窗口的办法。等待后端源码或新接口契约再完成 #54 的这一项。
+- **Issue search 分页**：2026-10-04 已通过用户提供的官方 OpenAPI 入口读取 [错误追踪接口页](https://octopus-docs.zhenguanyu.com/1b42090d16b681a4b2b5f600cd9a7ba7)。请求参数没有 limit/page/scroll，响应仍包含 hasMore；不能假设添加字段后就能分页。help 说明当前限制及缩小查询窗口的办法。需要后端提供分页契约后才能完成 #54 的这一项。
 - **分组缺失**：可能是字段不可分组，也可能是当前匹配记录不含此字段。因此使用警告而非认定字段非法；已知零条总计和空数组不告警。不额外请求巨大的字段目录，目录成员也不能证明可分组。
 - **服务端掩盖故障**：HTTP 失败/API 非零 code 可靠报错；若服务端输出 code=0 的正常空响应，CLI 无法区分内部故障与真实零命中。不声称修复了 #42 的所有后端行为。
 - **限流**：本轮文档化 HTTP 429/API -17，但不自动重试，尤其避免重放写操作。
@@ -45,7 +45,20 @@ CLI 的 help 承担命令、参数、默认值、限制、示例和输出契约�
 
 ## 本轮验证
 
-- `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 全部通过；9 个测试文件，229 个测试（原有 171 个，新增 58 个）。
+- `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 全部通过；官方文档对照补充后为 9 个测试文件，234 个测试（原有 171 个，新增 63 个）。
 - 构建后的真实 CLI 通过本地 HTTP 服务验证：无认证/请求的 help、JSONL 逐记录、JSON 包装和游标透传、RUM detail env、metric epoch 参数、API 错误的普通/JSON stderr、HTTP 前非法环境校验、嵌套命令解析错误的退出码和 JSON 格式。
 - 真实进程验收发现 Commander 的子命令需要分别设置退出捕获器；已修正并增加嵌套解析错误回归测试。
 - `git diff --check` 通过；包含 minor changeset，不手动修改版本号。
+
+## 官方 OpenAPI 对照补充（2026-10-04）
+
+用户提供 [官方入口](https://octopus-docs.zhenguanyu.com/1b42090d16b681749335c62b3ed505be) 后，已核对错误追踪、日志、Trace、LLM、RUM 和事件接口正文：
+
+- Issue search/detail 支持 dataSource=log|rum，未传默认 log；此前 client/CLI 未暴露，现补 `--source` 与内置 MCP 的 dataSource。search 的 legacy service 参数也可传，help 推荐 query 字段过滤。
+- 日志翻页使用最后一条记录 id；serializedSortValues 通过独立参数与 scrollId 配合。单独传 sort 值会在 HTTP 前报错。
+- Trace 翻页使用记录 id，order 按 Span 结束时间排序。
+- LLM/RUM/事件的 scrollType=pre|next、serializedSortValues 和 sort 对象与已补齐能力一致；文档没有声明 scrollType 默认值，help 改为要求翻页时明确指定。
+- sort operationEnum 的文档值域补入 help；自定义 percentile 还需要当前 CLI 未暴露的额外参数，help 明确限制并推荐具名 percentile。
+- RUM 文档示例没有列出 detail 的 env 参数；#49 的真实 400 证明当前服务要求 env，保留实测修复。接口文档与线上行为存在差异时在此记录，不从示例缺字段反推字段不需要。
+- 所有 help 层级加入官方入口/领域链接；不修改主 skill 和子 skill。
+- 官方文档对照补充新增 5 个回归用例，234 个测试及四项检查通过；实际 CLI 进程还验证了 RUM Issue search 的 dataSource 和 detail 的 query 参数、Issue ID URL 编码。

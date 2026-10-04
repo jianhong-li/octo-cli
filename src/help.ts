@@ -1,6 +1,20 @@
 import type { Command } from 'commander';
 
 const manual = 'https://github.com/kanyun-inc/octo-cli#readme';
+const openApi =
+  'https://octopus-docs.zhenguanyu.com/1b42090d16b681749335c62b3ed505be';
+const apiPages: Record<string, string> = {
+  logs: '1b42090d16b6815aa654e13c4de66ba4',
+  issues: '1b42090d16b681a4b2b5f600cd9a7ba7',
+  alerts: '1b42090d16b68152ae92d28056308156',
+  services: '1b42090d16b681e786c6ce18ac45b1f3',
+  metrics: '1b42090d16b68113bc99ebbbfcef6f1d',
+  trace: '1b42090d16b6812ba97cea1d2cbbd63e',
+  llm: '26f2090d16b680b39592ee187ea8e105',
+  rum: '26f2090d16b680209b69d9ac21d1a906',
+  events: '2af2090d16b6809c827bc15fa208e7bb',
+  users: '2232090d16b68048b441d1456a7ac374',
+};
 const installed = new WeakSet<Command>();
 
 const examples: Record<string, string[]> = {
@@ -46,8 +60,12 @@ const examples: Record<string, string[]> = {
   'alerts delete': ['octo alerts delete 101'],
   'issues search': [
     'octo issues search -q "service = myapp" --status unresolved --sort logCount -l 1h',
+    'octo issues search --source rum -e test --status all -l 1h',
   ],
-  'issues detail': ['octo issues detail <ISSUE_ID>'],
+  'issues detail': [
+    'octo issues detail <ISSUE_ID>',
+    'octo issues detail <RUM_ISSUE_ID> --source rum',
+  ],
   'issues ai-analysis': [
     'octo issues ai-analysis <ISSUE_ID> --context "Errors started after deployment"',
   ],
@@ -189,6 +207,20 @@ function leafNotes(command: Command, key: string): string[] {
   Keep env, query, order/sort, and an absolute --from/--to window unchanged.
   --scroll-id is the boundary record's id, NOT serializedSortValues.
   ${key === 'logs search' || key === 'trace search' ? 'Use the last record id to continue forward; traceId/spanId are not cursors.' : 'For next use the last record; for pre use the first record. Pass its\n  serializedSortValues separately when continuing a sorted query.'}`);
+  if (key === 'logs search')
+    notes.push(
+      'The API documents serializedSortValues alongside scrollId. Preserve the returned\n  opaque value and pass it as --serialized-sort-values when continuing; never\n  substitute it for the record id. --serialized-sort-values requires --scroll-id.'
+    );
+  if (key === 'trace search')
+    notes.push('--order sorts by span END time (asc/desc), not start time.');
+  if (options.has('--sort-operation'))
+    notes.push(
+      'Documented sort operationEnum values: none, count, sum, max, min, avg,\n  count_distinct, p10, p25, p50, p75, p80, p90, p95, p99, p999, p9999, heatmap,\n  percentile. Custom percentile also requires percentile/percentileValue API\n  fields, which this CLI does not expose; use a named percentile such as p95.'
+    );
+  if (key === 'issues search' || key === 'issues detail')
+    notes.push(
+      'Issue source: --source log (backend default) or rum. Use rum for RUM Issues;\n  this source is independent of the environment.'
+    );
   if (key === 'issues search')
     notes.push(
       'API limitation: the documented Issue search endpoint has no page/limit/scroll\n  parameters. If hasMore=true, narrow the service/query/time window; this CLI\n  cannot guarantee an exhaustive Issue list. Use --status all to include all states.'
@@ -264,6 +296,9 @@ function leafNotes(command: Command, key: string): string[] {
 export function configureCommandHelp(program: Command): void {
   function visit(command: Command): void {
     const key = commandKey(command);
+    const apiReference = apiPages[key.split(' ')[0]]
+      ? `https://octopus-docs.zhenguanyu.com/${apiPages[key.split(' ')[0]]}`
+      : openApi;
     if (!installed.has(command)) {
       installed.add(command);
       for (const option of command.options) {
@@ -324,7 +359,8 @@ Failures: exit code 1, concise stderr, no stack trace. --json-errors emits
 HTTP failures and nonzero API codes are errors. No automatic retries;
 rate limits (HTTP 429/code -17) require caller backoff. Successful empty
 responses cannot reveal backend failures masked by the server.
-Full manual: ${manual}`;
+Full manual: ${manual}
+OpenAPI: ${openApi}`;
         if (command.commands.length) {
           const details = command.commands.map((child) => {
             const relevant = child.options.filter((option) =>
@@ -343,9 +379,9 @@ Full manual: ${manual}`;
           const groupExamples = command.commands
             .flatMap((child) => examples[commandKey(child)]?.slice(0, 1) ?? [])
             .slice(0, 3);
-          return `\nTasks and common options (pass options AFTER the subcommand):\n${details.join('\n')}\n\nExamples:\n${groupExamples.map((example) => `  ${example}`).join('\n')}\n\nUse octo ${key} <command> --help for value domains and query/pagination semantics.${key === 'events' ? '\nBare octo events defaults to events list; octo events list --help shows all query flags.' : ''}\nFull manual: ${manual}`;
+          return `\nTasks and common options (pass options AFTER the subcommand):\n${details.join('\n')}\n\nExamples:\n${groupExamples.map((example) => `  ${example}`).join('\n')}\n\nUse octo ${key} <command> --help for value domains and query/pagination semantics.${key === 'events' ? '\nBare octo events defaults to events list; octo events list --help shows all query flags.' : ''}\nFull manual: ${manual}\nOpenAPI: ${apiReference}`;
         }
-        return `\n${leafNotes(command, key).join('\n\n')}\n\nExamples:\n${(examples[key] ?? []).map((example) => `  ${example}`).join('\n')}\n\nFailures: exit code 1; use octo --json-errors ${key} ... for JSON errors on stderr.\nFull manual: ${manual}`;
+        return `\n${leafNotes(command, key).join('\n\n')}\n\nExamples:\n${(examples[key] ?? []).map((example) => `  ${example}`).join('\n')}\n\nFailures: exit code 1; use octo --json-errors ${key} ... for JSON errors on stderr.\nFull manual: ${manual}\nOpenAPI: ${apiReference}`;
       });
     }
     for (const child of command.commands) visit(child);

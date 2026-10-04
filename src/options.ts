@@ -39,6 +39,8 @@ export function configureValidation(program: Command): void {
       throw new Error('--sort-order requires --sort');
     if (opts.sortOperation && !opts.sort)
       throw new Error('--sort-operation requires --sort');
+    if (opts.serializedSortValues && !opts.scrollId)
+      throw new Error('--serialized-sort-values requires --scroll-id');
     for (const key of ['limit', 'points', 'page', 'pageSize']) {
       if (opts[key] !== undefined)
         parsePositiveInteger(

@@ -783,6 +783,15 @@ export function registerCommands(program: Command): void {
   issues
     .command('search')
     .description('Search issues')
+    .option(
+      '--source <src>',
+      'Issue data source: log or rum (backend default: log)',
+      parseIssueSource
+    )
+    .option(
+      '--service <service>',
+      'Legacy service filter; prefer service = ... in --query'
+    )
     .option('-q, --query <query>', 'Query string')
     .option('-e, --env <env>', 'Environment')
     .option('-l, --last <duration>', 'Time range', '1h')
@@ -805,6 +814,8 @@ export function registerCommands(program: Command): void {
         query: opts.query,
         sortType: opts.sort,
         status: opts.status,
+        dataSource: opts.source,
+        service: opts.service,
       });
       printOutput(data, opts.output as OutputFormat);
     });
@@ -813,10 +824,15 @@ export function registerCommands(program: Command): void {
     .command('detail')
     .description('Get issue detail')
     .argument('<issueId>', 'Issue ID')
+    .option(
+      '--source <src>',
+      'Issue data source: log or rum (backend default: log)',
+      parseIssueSource
+    )
     .option('-o, --output <fmt>', 'Output format', 'json')
     .action(async (issueId, opts) => {
       const client = getClient();
-      const data = await client.issueDetail(issueId);
+      const data = await client.issueDetail(issueId, opts.source);
       printOutput(data, opts.output as OutputFormat);
     });
 
@@ -1789,7 +1805,7 @@ export function registerCommands(program: Command): void {
       ?.option('--scroll-id <id>', 'Boundary record id from the previous page')
       .option(
         '--scroll-type <type>',
-        'Page direction: pre or next (backend default: next)'
+        'Page direction: pre or next; set explicitly when continuing'
       )
       .option(
         '--serialized-sort-values <value>',

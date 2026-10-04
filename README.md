@@ -306,9 +306,11 @@ octo-cli logs search -q "service = myapp" \
   --from 1790596500000 --to 1790596800000 -n 500 --scroll-id <LAST_LOG_ID>
 ```
 
-日志 `--scroll-id` 使用上一页最后一条记录的 `id`，不能用 `serializedSortValues` 代替；后者有独立参数。Trace 同样支持 `--scroll-id`；LLM/RUM/事件还支持 `--scroll-type pre|next`、`--serialized-sort-values`、`--sort`、`--sort-order` 和 `--sort-operation`。具体游标配合方式见各自 `--help`。一次调用只返回一页。
+日志 `--scroll-id` 使用上一页最后一条记录的 `id`，不能用 `serializedSortValues` 代替；官方接口说明后者应通过独立参数与 `scrollId` 配合使用。Trace 同样支持 `--scroll-id`，`--order` 按 Span 结束时间排序；LLM/RUM/事件还支持 `--scroll-type pre|next`、`--serialized-sort-values`、`--sort`、`--sort-order` 和 `--sort-operation`。具体游标配合方式见各自 `--help`。一次调用只返回一页。
 
 `issues search` 的已公开接口没有分页、条数或游标参数；若响应带 `hasMore:true`，需缩小服务、查询或时间范围，不能据一页结果声明已穷尽。此限制待后端接口契约确认。
+
+`issues search` 和 `issues detail` 支持 `--source log|rum`，未指定时保持后端默认 `log`；查询 RUM Issue 请传 `--source rum`。它与 `rum detail` 查询原始 RUM 事件是不同入口。
 
 分组只能使用对应数据源和索引中的分析字段。聚合中的 `fields:{}` 是总计，不能当成分组结果；请求字段没有出现在任何分组行时，CLI 会向 stderr 警告。用 `-g <field>:2` 对已知有匹配的数据试查。查询使用字段实名（例如 `status`），响应中的 `attributes.status` 是呈现路径。全文查询经过分词，不能把它当子串或前缀查询；零命中时用同一时间窗的已知匹配查询核对。
 
@@ -441,6 +443,8 @@ export OCTOPUS_EXTRA_HEADERS='{"X-Octopus-Tenant":"tenant-a"}'
 > 旧版 Application Key 登录方式（`--app-id` / `--app-secret`、`OCTOPUS_APP_ID` / `OCTOPUS_APP_SECRET`）不再生效。请改用 `--token` 或 `OCTOPUS_TOKEN`。
 
 ## API 参考
+
+官方 [OpenAPI 文档入口](https://octopus-docs.zhenguanyu.com/1b42090d16b681749335c62b3ed505be) 提供完整请求/响应定义。根命令、命令组和叶子命令的 `--help` 均包含入口或对应领域链接。当前 [Issue 搜索接口](https://octopus-docs.zhenguanyu.com/1b42090d16b681a4b2b5f600cd9a7ba7) 文档没有分页请求参数，不能仅凭响应中的 `hasMore` 推断存在可用的翻页入口。
 
 octo-cli 封装了 Octopus OpenAPI，默认地址 `https://octopus-app.zhenguanyu.com`：
 

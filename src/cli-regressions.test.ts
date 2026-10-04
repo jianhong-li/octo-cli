@@ -258,6 +258,79 @@ describe('reported CLI regressions', () => {
     });
   });
 
+  it.each([undefined, 'log', 'rum'])(
+    'queries Issue search/detail using source %s without changing the omitted-source default',
+    async (source) => {
+      const search = setup();
+      const sourceArgs = source === undefined ? [] : ['--source', source];
+      await search.program.parseAsync(
+        ['issues', 'search', '--service', 'myapp', ...sourceArgs],
+        { from: 'user' }
+      );
+      expect(search.calls[0].body.service).toBe('myapp');
+      if (source === undefined)
+        expect(search.calls[0].body).not.toHaveProperty('dataSource');
+      else expect(search.calls[0].body.dataSource).toBe(source);
+      const detail = setup();
+      await detail.program.parseAsync(
+        ['issues', 'detail', 'id/a', ...sourceArgs],
+        { from: 'user' }
+      );
+      expect(detail.calls[0].url).toBe(
+        `https://example.com/infra-octopus-openapi/v1/log-error-tracking/issues/id%2Fa${source === undefined ? '' : `?dataSource=${source}`}`
+      );
+    }
+  );
+
+  it('MCP exposes and forwards Issue sources for search and detail', async () => {
+    const { calls } = setup();
+    const client = new OctoClient('https://example.com', { token: 'test' });
+    for (const name of ['octo_issues_search', 'octo_issues_detail']) {
+      expect(
+        getMcpTools().find((tool) => tool.name === name)?.inputSchema.properties
+      ).toHaveProperty('dataSource');
+    }
+    await handleMcpTool(
+      'octo_issues_search',
+      { dataSource: 'rum', service: 'myapp' },
+      client
+    );
+    await handleMcpTool(
+      'octo_issues_detail',
+      { issueId: 'a', dataSource: 'rum' },
+      client
+    );
+    expect(calls[0].body).toMatchObject({
+      dataSource: 'rum',
+      service: 'myapp',
+    });
+    expect(calls[1].url).toContain('/issues/a?dataSource=rum');
+  });
+
+  it('rejects invalid Issue sources and detached sort cursors before HTTP', async () => {
+    const { program, fetch } = setup();
+    await expect(
+      program.parseAsync(
+        ['logs', 'search', '--serialized-sort-values', 'opaque'],
+        { from: 'user' }
+      )
+    ).rejects.toThrow('--serialized-sort-values requires --scroll-id');
+    const client = new OctoClient('https://example.com', { token: 'test' });
+    await expect(
+      client.issuesSearch({
+        env: 'online',
+        from: 1,
+        to: 2,
+        status: 'all',
+        sortType: 'logCount',
+        dataSource: 'xyz',
+      })
+    ).rejects.toThrow('log, rum');
+    await expect(client.issueDetail('a', 'xyz')).rejects.toThrow('log, rum');
+    await expect(client.issueDetail(' ')).rejects.toThrow('must not be blank');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid Issue sources at the shared client boundary', async () => {
     const { fetch } = setup();
     const client = new OctoClient('https://example.com', { token: 'test' });
@@ -286,6 +359,7 @@ describe('reported CLI regressions', () => {
       });
       command.outputHelp();
       expect(help).toContain('Full manual:');
+      expect(help).toContain('OpenAPI: https://octopus-docs.zhenguanyu.com/');
       if (command.parent && !command.commands.length) {
         expect(help).toMatch(/Examples:\n\s+octo \S/);
         if (command.options.some((option) => option.long === '--env'))
