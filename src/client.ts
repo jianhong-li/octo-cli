@@ -692,6 +692,7 @@ export class OctoClient {
     limit?: number;
     order?: string;
     scrollId?: string;
+    serializedSortValues?: string;
   }) {
     return this.post('/infra-octopus-openapi/v1/trace/span/list', params);
   }

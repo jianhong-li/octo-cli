@@ -23,6 +23,9 @@ export function configureValidation(program: Command): void {
   program.hook('preAction', (_root, command) => {
     const opts = command.opts();
     const group = command.parent?.name();
+    if (opts.cursorFile !== undefined && !opts.cursorFile.trim()) {
+      throw new Error('--cursor-file must be a non-empty file path');
+    }
     if (command.name() === 'mcp-install')
       validateChoice(opts.scope, '--scope', ['user', 'local', 'project']);
     if (opts.env !== undefined) {

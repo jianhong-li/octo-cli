@@ -292,7 +292,7 @@ octo-cli users alice bob                                  # 按姓名搜索用�
 
 ## Unix 管道
 
-查询数据输出到 stdout，诊断和翻页提示输出到 stderr。`json` 保留完整 API 响应；`jsonl` 每行一条记录，自动展开 `logs`、`spanItems`、`rumItems`、`eventItems`、`issues`、`list` 等列表包装；`table` 同样按记录显示列。需要 `hasMore` 等分页信息时使用 `json`。这使输出可以直接用于 `jq` 等工具的组合查询。
+查询数据输出到 stdout，诊断和翻页提示输出到 stderr。`json` 保留完整 API 响应；`jsonl` 每行一条记录，自动展开 `logs`、`spanItems`、`rumItems`、`eventItems`、`issues`、`list` 等列表包装；`table` 同样按记录显示列。需要分页信息时，可使用 `json`，或通过 `--cursor-file` 单独写入元数据。JSONL 配合 cursor 文件可让脚本处理日志并续页，只把摘要与必要样本交给 agent，无需再请求同一页的 JSON。
 
 ```bash
 # JSONL 是逐条日志，不是整页包装；每条记录保留 id 与 sort 值
@@ -306,7 +306,41 @@ octo-cli logs search -q "service = myapp" \
   --from 1790596500000 --to 1790596800000 -n 500 --scroll-id <LAST_LOG_ID>
 ```
 
-日志 `--scroll-id` 使用上一页最后一条记录的 `id`，不能用 `serializedSortValues` 代替；官方接口说明后者应通过独立参数与 `scrollId` 配合使用。Trace 同样支持 `--scroll-id`，`--order` 按 Span 结束时间排序；LLM/RUM/事件还支持 `--scroll-type pre|next`、`--serialized-sort-values`、`--sort`、`--sort-order` 和 `--sort-operation`。具体游标配合方式见各自 `--help`。一次调用只返回一页。
+日志 `--scroll-id` 使用上一页最后一条记录的 `id`，不能用 `serializedSortValues` 代替；官方接口说明后者应通过独立参数与 `scrollId` 配合使用。Trace 同样支持 `--scroll-id` 和 `--serialized-sort-values`，`--order` 按 Span 结束时间排序；LLM/RUM/事件还支持 `--scroll-type pre|next`、`--sort`、`--sort-order` 和 `--sort-operation`。具体游标配合方式见各自 `--help`。一次调用只返回一页。
+
+`logs search`、`trace search`、`llm`、`rum list`、`events list`（含默认 `events`）支持 `--cursor-file <path>`，与 `json/jsonl/table` 正交。每次成功查询都通过同目录临时文件和 rename 原子覆盖，写入单行 JSON：
+
+| 页面状态 | cursor 文件内容 |
+| --- | --- |
+| 后端明确还有下一页 | `{"hasMore":true,"count":N,"scrollId":"...","serializedSortValues":"..."}` |
+| 后端明确为终页 | `{"hasMore":false,"count":N}`，清除旧续页字段 |
+| 后端未提供 hasMore/lastPage，如当前 RUM list | `{"hasMore":null,"count":N,...}`；非空页携带边界游标，空页不含游标 |
+
+`count` 是本页实际记录数；不根据满页、少量记录或空页猜测 `hasMore`。`serializedSortValues` 仅在边界记录返回非空字符串时写入，原样保留。日志/Trace 始终取最后一条记录，LLM/RUM/事件的 next 取最后一条、pre 取第一条；两个游标字段必须来自同一条记录。
+
+HTTP/API 失败和 cursor 文件写入失败都非零退出，并保持旧文件不变。**脚本只在 exit 0 后读取本次元数据**；旧文件仅用于重试，存在不代表本次成功。父目录须已存在，不自动创建目录或读取旧文件续页。多个查询任务应分别使用自己的文件。
+
+以下 Bash 示例把数据留在文件中，并显式续查一页；实际使用时替换服务与绝对时间窗口：
+
+```bash
+octo_query_args=(-q "service = myapp" -e online --from 1790596500000 --to 1790596800000 --order asc -n 500)
+octo-cli logs search "${octo_query_args[@]}" -o jsonl \
+  --cursor-file /tmp/logs.cursor > /tmp/logs.page1.jsonl || exit 1
+
+octo_has_more=$(jq -r '.hasMore' /tmp/logs.cursor)
+octo_next_id=$(jq -r '.scrollId // empty' /tmp/logs.cursor)
+octo_sort_values=$(jq -r '.serializedSortValues // empty' /tmp/logs.cursor)
+if [[ "$octo_has_more" != false && -n "$octo_next_id" ]]; then
+  octo_cursor_args=(--scroll-id "$octo_next_id")
+  if [[ -n "$octo_sort_values" ]]; then
+    octo_cursor_args+=(--serialized-sort-values "$octo_sort_values")
+  fi
+  octo-cli logs search "${octo_query_args[@]}" "${octo_cursor_args[@]}" -o jsonl \
+    --cursor-file /tmp/logs.cursor > /tmp/logs.page2.jsonl || exit 1
+fi
+```
+
+续页必须保持 env/query/from/to/order/sort/scroll-type 一致。LLM/RUM/事件翻页请显式设置方向；hasMore=null 表示完整性未知，可使用非空边界继续探查，不代表下一页一定有数据。此选项不适用于没有分页契约的 `issues search`。
 
 `issues search` 的后端接口固定最多返回 99 个 Issue，没有分页、条数或游标参数；`hasMore:true` 表示结果被截断，并不意味着存在下一页游标。需缩小服务、查询或时间范围，不能据一页结果声明已穷尽。JSONL/table 的 stderr 提示也会说明这一限制。
 

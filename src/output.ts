@@ -3,7 +3,8 @@
  */
 export function printOutput(
   data: unknown,
-  format: 'json' | 'table' | 'jsonl' = 'json'
+  format: 'json' | 'table' | 'jsonl' = 'json',
+  cursorFileWritten = false
 ): void {
   if (format === 'json') {
     console.log(JSON.stringify(data, null, 2));
@@ -31,7 +32,9 @@ export function printOutput(
         console.error(
           key === 'issues'
             ? 'More records match this Issue search. The API returns at most 99 Issues and has no pagination controls; narrow the service/query/time window. This result is incomplete.'
-            : 'More records are available. Use -o json for pagination metadata and keep the same filters/time range when continuing.'
+            : cursorFileWritten
+              ? 'More records are available. Pagination metadata is in --cursor-file; keep the same filters/time range when continuing.'
+              : 'More records are available. Use -o json for pagination metadata and keep the same filters/time range when continuing.'
         );
       }
     }

@@ -1037,6 +1037,15 @@ export function getMcpTools() {
             type: 'string',
             enum: ['asc', 'desc'],
           },
+          scrollId: {
+            type: 'string',
+            description:
+              'Last record id from the previous page, not traceId/spanId',
+          },
+          serializedSortValues: {
+            type: 'string',
+            description: 'Opaque sort value from the same boundary record',
+          },
         },
       },
     },
@@ -1720,6 +1729,8 @@ export async function handleMcpTool(
           query: args.query as string | undefined,
           limit: args.limit as number | undefined,
           order: args.order as string | undefined,
+          scrollId: args.scrollId as string | undefined,
+          serializedSortValues: args.serializedSortValues as string | undefined,
         });
         return ok(JSON.stringify(data, null, 2));
       }

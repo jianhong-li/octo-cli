@@ -19,7 +19,7 @@ CLI 的 help 承担命令、参数、默认值、限制、示例和输出契约�
 | Issue | 本轮处理 | 验证入口 |
 | --- | --- | --- |
 | [#47](https://github.com/kanyun-inc/octo-cli/issues/47) | JSONL 每行记录，table 按记录列显示，JSON 保留原始包装，分页提醒在 stderr | `src/output.test.ts` |
-| [#48](https://github.com/kanyun-inc/octo-cli/issues/48) | 文档说明日志 record id 游标；Trace、LLM、RUM、事件暴露 client 支持的 scroll 参数 | `src/cli-regressions.test.ts` |
+| [#48](https://github.com/kanyun-inc/octo-cli/issues/48) | 文档说明 record id 游标；补齐 scroll/sort 和 Trace sort 值；按确认评论实现 cursor 文件，分页元数据无需另请求 JSON | `src/cli-regressions.test.ts`、`src/cursor.test.ts` |
 | [#49](https://github.com/kanyun-inc/octo-cli/issues/49) | RUM detail 增加显式/默认 env 和必填事件 timestamp，CLI/MCP 均携带参数，记录 id 做 URL 编码 | `src/cli-regressions.test.ts`、`src/mcp.test.ts` |
 | [#50](https://github.com/kanyun-inc/octo-cli/issues/50) | `--at` 与范围时间共享 epoch ms/seconds/ISO 解析，非法输入在 HTTP 前失败 | `src/time.test.ts`、`src/cli-regressions.test.ts` |
 | [#51](https://github.com/kanyun-inc/octo-cli/issues/51) | 非法环境报错；孤立 `--to` 报错；`alerts -s all` 是明确别名；有数据但未返回请求分组时警告 | `src/aggregate.test.ts`、`src/cli-regressions.test.ts` |
@@ -45,7 +45,7 @@ CLI 的 help 承担命令、参数、默认值、限制、示例和输出契约�
 
 ## 本轮验证
 
-- `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 全部通过；源码对照补充后为 9 个测试文件，240 个测试（原有 171 个，新增 69 个）。
+- `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 全部通过；cursor 契约补充后为 10 个测试文件，288 个测试（原有 171 个，新增 117 个）。
 - 构建后的真实 CLI 通过本地 HTTP 服务验证：无认证/请求的 help、JSONL 逐记录、JSON 包装和游标透传、RUM detail env、metric epoch 参数、API 错误的普通/JSON stderr、HTTP 前非法环境校验、嵌套命令解析错误的退出码和 JSON 格式。
 - 真实进程验收发现 Commander 的子命令需要分别设置退出捕获器；已修正并增加嵌套解析错误回归测试。
 - `git diff --check` 通过；包含 minor changeset，不手动修改版本号。
@@ -71,3 +71,14 @@ CLI 的 help 承担命令、参数、默认值、限制、示例和输出契约�
 - help/README 提供从 RUM list 记录取得 id/timestamp 的流程；不使用当前时间默认值。changeset 记录 RUM detail 参数变化。
 - 内部源码地址和专有实现不写入开源仓库，只记录 CLI 所需的接口行为。
 - 新增 6 个回归用例，240 个测试通过。构建后的真实进程验证 RUM 秒时间转换为毫秒、缺少 timestamp 的 JSON 错误且不发 HTTP、无认证依赖的 detail help，以及 Issue 截断时 stdout 逐记录和 stderr 的上限提示。
+
+## Cursor 文件契约补充（2026-10-04）
+
+实现依据：[用户确认的 #48 评论](https://github.com/kanyun-inc/octo-cli/issues/48#issuecomment-5981320092)。
+
+- 日志、Trace、LLM、RUM、事件的列表查询可通过 `--cursor-file` 写单行 JSON，与 json/jsonl/table 共用。只写不自动读取；Issue search 不支持。
+- 每次成功均原子覆盖；终页保留 hasMore=false/count 并清除旧游标。接口没有完整性字段时写 hasMore=null，不根据记录数推断；未知空页不带游标。
+- 日志/Trace 与 next 取最后一条，pre 取第一条；sort 值与 id 同源，原样保存。Trace client/CLI/MCP 补透传 serializedSortValues。
+- HTTP/API 或文件失败均非零退出；临时文件失败时清理，旧文件不变。文件成功写入后才输出数据；脚本只在退出码 0 后读元数据。父目录必须已存在，各查询独立使用 cursor 文件。
+- help/README 说明三态、成功与失败行为、固定绝对窗口和排序方向、显式参数续页、可选字段存在性判断；JSONL stdout 不掺入 metadata。
+- 新增 48 个回归用例，288 个测试及四项检查通过。构建后的实际 CLI 进程验证每页一次请求、JSONL 逐记录、续页参数与固定窗口、终页/未知空页覆盖、pre 边界、Trace sort 值、HTTP 失败和真实目录权限导致的文件失败保留旧文件，以及无残留临时文件。原有实际进程 smoke 同样通过。

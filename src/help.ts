@@ -25,6 +25,7 @@ const examples: Record<string, string[]> = {
   'logs search': [
     'octo logs search -e online -q "service = myapp AND level = ERROR" -l 15m -n 50',
     'octo logs search -q "trace_id = <TRACE_ID>" --from 1790596500000 --to 1790596800000 --order asc --scroll-id <LAST_LOG_ID>',
+    'octo logs search -q "service = myapp" -e online --from 1790596500000 --to 1790596800000 --order asc -o jsonl --cursor-file /tmp/logs.cursor > /tmp/logs.jsonl',
   ],
   'logs aggregate': [
     'octo logs aggregate -q "service = myapp AND level = ERROR" -l 30m -g k8s.pod.name:20 -a "*:count"',
@@ -209,10 +210,25 @@ function leafNotes(command: Command, key: string): string[] {
   Keep env, query, order/sort, and an absolute --from/--to window unchanged.
   --scroll-id is the boundary record's id, NOT serializedSortValues.
   ${key === 'logs search' || key === 'trace search' ? 'Use the last record id to continue forward; traceId/spanId are not cursors.' : 'For next use the last record; for pre use the first record. Pass its\n  serializedSortValues separately when continuing a sorted query.'}`);
-  if (key === 'logs search')
+  if (key === 'logs search' || key === 'trace search')
     notes.push(
       'The API documents serializedSortValues alongside scrollId. Preserve the returned\n  opaque value and pass it as --serialized-sort-values when continuing; never\n  substitute it for the record id. --serialized-sort-values requires --scroll-id.'
     );
+  if (options.has('--cursor-file'))
+    notes.push(`Cursor file: --cursor-file <path> atomically replaces a single-line JSON file
+  after a successful page, for json/jsonl/table; stdout keeps its normal format.
+  {"hasMore":true,"count":N,"scrollId":"...","serializedSortValues":"..."}
+  Terminal pages write {"hasMore":false,"count":N}, clearing the previous cursor.
+  Missing hasMore/lastPage means hasMore:null (e.g. RUM); never infer from size.
+  Unknown nonempty pages include a boundary; unknown empty pages have no cursor.
+  Sort values are optional and remain opaque, from the same record as scrollId.
+  For next use the last record; for pre use the first (logs/Trace use the last).
+  HTTP/API/file-write failures exit nonzero and leave the previous file untouched.
+  Read only after exit 0. Parent directory must exist. No automatic file reading.
+  Continue with identical env/query/from/to/order/sort/scroll-type, using an
+  absolute time window. Pass optional cursor values only when present/nonempty:
+  jq -r '.scrollId // empty' /tmp/logs.cursor
+  jq -r '.serializedSortValues // empty' /tmp/logs.cursor`);
   if (key === 'trace search')
     notes.push('--order sorts by span END time (asc/desc), not start time.');
   if (options.has('--sort-operation'))

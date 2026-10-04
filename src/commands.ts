@@ -18,6 +18,7 @@ import {
   getDefaultEnv,
   saveToken,
 } from './config.js';
+import { printPageOutput } from './cursor.js';
 import { configureCommandHelp } from './help.js';
 import { configureValidation } from './options.js';
 import { printOutput } from './output.js';
@@ -442,6 +443,10 @@ export function registerCommands(program: Command): void {
     .option('-o, --output <fmt>', 'Output: json, table, jsonl', 'json')
     .option('--scroll-id <id>', 'Pagination scroll ID')
     .option(
+      '--cursor-file <path>',
+      'Atomically write page continuation metadata'
+    )
+    .option(
       '--serialized-sort-values <value>',
       'Opaque sort value from the last log; pass separately from its id'
     )
@@ -458,7 +463,7 @@ export function registerCommands(program: Command): void {
         scrollId: opts.scrollId,
         serializedSortValues: opts.serializedSortValues,
       });
-      printOutput(data, opts.output as OutputFormat);
+      await printPageOutput(data, opts, 'logs');
     });
 
   logs
@@ -1226,6 +1231,14 @@ export function registerCommands(program: Command): void {
       '--scroll-id <id>',
       'Last span id from the previous page (not traceId or spanId)'
     )
+    .option(
+      '--cursor-file <path>',
+      'Atomically write page continuation metadata'
+    )
+    .option(
+      '--serialized-sort-values <value>',
+      'Opaque sort value from the last span; pass separately from its id'
+    )
     .option('-q, --query <query>', 'Query string')
     .option('-e, --env <env>', 'Environment')
     .option('-l, --last <duration>', 'Time range', '15m')
@@ -1245,8 +1258,9 @@ export function registerCommands(program: Command): void {
         limit: Number.parseInt(opts.limit, 10),
         order: opts.order,
         scrollId: opts.scrollId,
+        serializedSortValues: opts.serializedSortValues,
       });
-      printOutput(data, opts.output as OutputFormat);
+      await printPageOutput(data, opts, 'spanItems');
     });
 
   trace
@@ -1442,7 +1456,7 @@ export function registerCommands(program: Command): void {
         query: opts.query,
         pageSize: Number.parseInt(opts.limit, 10),
       });
-      printOutput(data, opts.output as OutputFormat);
+      await printPageOutput(data, opts, 'spanItems');
     });
 
   // ─── rum ─────────────────────────────────────────────────
@@ -1469,7 +1483,7 @@ export function registerCommands(program: Command): void {
         query: opts.query,
         pageSize: Number.parseInt(opts.limit, 10),
       });
-      printOutput(data, opts.output as OutputFormat);
+      await printPageOutput(data, opts, 'rumItems');
     });
 
   rum
@@ -1554,7 +1568,7 @@ export function registerCommands(program: Command): void {
         query: opts.query,
         pageSize: Number.parseInt(opts.limit, 10),
       });
-      printOutput(data, opts.output as OutputFormat);
+      await printPageOutput(data, opts, 'eventItems');
     });
 
   events
@@ -1812,6 +1826,10 @@ export function registerCommands(program: Command): void {
   ]) {
     command
       ?.option('--scroll-id <id>', 'Boundary record id from the previous page')
+      .option(
+        '--cursor-file <path>',
+        'Atomically write page continuation metadata'
+      )
       .option(
         '--scroll-type <type>',
         'Page direction: pre or next; set explicitly when continuing'
