@@ -83,7 +83,7 @@ describe('MCP tools', () => {
   });
 
   it('dispatches issue detail, assign, and update tools', async () => {
-    vi.stubEnv('OCTOPUS_ENV', 'default-env');
+    vi.stubEnv('OCTOPUS_ENV', 'test');
     const client = testClient();
     const calls = captureFetch();
 
@@ -118,7 +118,7 @@ describe('MCP tools', () => {
     );
     expect(JSON.parse(calls[2].body)).toEqual({
       dataSource: 'log',
-      env: 'default-env',
+      env: 'test',
       issueIds: ['ISSUE-1'],
       status: 'resolved',
     });
@@ -223,7 +223,7 @@ describe('MCP tools', () => {
   });
 
   it('dispatches issue update with USER_COUNT ignoreRule', async () => {
-    vi.stubEnv('OCTOPUS_ENV', 'default-env');
+    vi.stubEnv('OCTOPUS_ENV', 'test');
     const client = testClient();
     const calls = captureFetch();
 
@@ -248,7 +248,7 @@ describe('MCP tools', () => {
 
     expect(JSON.parse(calls[0].body)).toEqual({
       dataSource: 'log',
-      env: 'default-env',
+      env: 'test',
       issueIds: ['ISSUE-1'],
       status: 'ignored',
       ignoreRule: {
@@ -503,7 +503,7 @@ describe('MCP tools', () => {
     });
     expect(calls[1].method).toBe('GET');
     expect(calls[1].url).toBe(
-      'https://example.com/infra-octopus-openapi/v1/rum/rum-event-1'
+      'https://example.com/infra-octopus-openapi/v1/rum/rum-event-1?env=online'
     );
     expect(calls[2].method).toBe('POST');
     expect(calls[2].url).toBe(
@@ -632,7 +632,7 @@ describe('MCP tools', () => {
   it('defaults service entries to the CLI 1h time window', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-03T12:00:00.000Z'));
-    vi.stubEnv('OCTOPUS_ENV', 'default-env');
+    vi.stubEnv('OCTOPUS_ENV', 'test');
     const client = testClient();
     const calls = captureFetch();
 
@@ -647,7 +647,7 @@ describe('MCP tools', () => {
       'https://example.com/infra-octopus-openapi/v1/apm/query/entries'
     );
     expect(JSON.parse(calls[0].body)).toEqual({
-      env: 'default-env',
+      env: 'test',
       from: 1_783_076_400_000,
       to: 1_783_080_000_000,
       service: 'checkout',

@@ -19,6 +19,7 @@ import {
 import { parsePositiveInteger } from './aggregate.js';
 import { normalizeAlertScope, OctoClient } from './client.js';
 import { getBaseUrl, getCredentials, getDefaultEnv } from './config.js';
+import { ApiError } from './errors.js';
 
 function getClient(): OctoClient {
   const credentials = getCredentials();
@@ -30,11 +31,16 @@ function ok(text: string) {
 }
 
 function fail(err: unknown) {
+  const message = err instanceof Error ? err.message : String(err);
+  const prefix =
+    err instanceof ApiError
+      ? `HTTP ${err.status}${err.code === undefined ? '' : `, code=${err.code}`}: `
+      : '';
   return {
     content: [
       {
         type: 'text' as const,
-        text: `Error: ${err instanceof Error ? err.message : String(err)}`,
+        text: `Error: ${prefix}${message}`,
       },
     ],
     isError: true,
@@ -1182,6 +1188,7 @@ export function getMcpTools() {
         type: 'object' as const,
         properties: {
           id: { type: 'string', description: 'RUM event ID' },
+          env: envProp,
         },
         required: ['id'],
       },
@@ -1807,7 +1814,10 @@ export async function handleMcpTool(
       }
 
       case 'octo_rum_detail': {
-        const data = await client.rumDetail(String(args.id));
+        const data = await client.rumDetail(
+          String(args.id),
+          String(args.env ?? getDefaultEnv())
+        );
         return ok(JSON.stringify(data, null, 2));
       }
 

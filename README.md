@@ -72,6 +72,20 @@ octo-cli 的解法是三层结构：**上下文**（这个项目跑了什么、�
 
 ## 快速开始
 
+CLI 可以独立使用，不需要安装 skill 或执行项目 `init`：
+
+```bash
+npx octo-cli login --token <YOUR_PERSONAL_ACCESS_TOKEN> --skip-skill
+npx octo-cli logs search -e online -q "service = myapp AND level = ERROR" -l 15m
+npx octo-cli --help                  # 认证、配置、命令入口与错误契约
+npx octo-cli logs --help             # 任务入口、常用选项及默认值
+npx octo-cli logs search --help      # 参数值域、示例、查询语义与翻页
+```
+
+每个子命令的 `--help` 都包含示例。环境参数只接受 `online`、`test`；多数查询使用 `OCTOPUS_ENV` → 配置 `env` → `online`，但 `alerts search`、`alerts rules`、`event-subscriptions list` 未传 `--env` 时查询所有环境。
+
+以下是可选的 Agent 项目上下文接入流程：
+
 ```bash
 # 一条命令完成所有准备（保存凭证 + 全局安装 Skill）
 npx octo-cli login --token <YOUR_PERSONAL_ACCESS_TOKEN>
@@ -98,7 +112,7 @@ Octopus 的 URL 参数是语义化的（`env`、`query`、`time`、`application`
 
 ## 命令
 
-所有查询命令共享这些选项：
+时间范围查询通常支持这些选项，具体以子命令 `--help` 为准（详情查询与部分列表没有时间范围选项）：
 
 | 选项 | 说明 | 示例 |
 |------|------|------|
@@ -278,7 +292,29 @@ octo-cli users alice bob                                  # 按姓名搜索用�
 
 ## Unix 管道
 
-所有命令输出到 stdout，支持 `json` 和 `jsonl` 两种格式，天然适配 `jq`、`grep`、`sort`、`awk`。这不是附加功能，而是核心设计 —— 可观测数据的价值在于**组合和关联**，而不是一条条孤立地看。
+查询数据输出到 stdout，诊断和翻页提示输出到 stderr。`json` 保留完整 API 响应；`jsonl` 每行一条记录，自动展开 `logs`、`spanItems`、`rumItems`、`eventItems`、`issues`、`list` 等列表包装；`table` 同样按记录显示列。需要 `hasMore` 等分页信息时使用 `json`。这使输出可以直接用于 `jq` 等工具的组合查询。
+
+```bash
+# JSONL 是逐条日志，不是整页包装；每条记录保留 id 与 sort 值
+octo-cli logs search -q "service = myapp" -l 15m -o jsonl | jq -r '.message'
+
+# 翻页时固定环境、查询、排序与绝对时间窗口
+octo-cli logs search -q "service = myapp" \
+  --from 1790596500000 --to 1790596800000 -n 500 -o json > page.json
+jq '{hasMore, lastId: .logs[-1].id}' page.json
+octo-cli logs search -q "service = myapp" \
+  --from 1790596500000 --to 1790596800000 -n 500 --scroll-id <LAST_LOG_ID>
+```
+
+日志 `--scroll-id` 使用上一页最后一条记录的 `id`，不能用 `serializedSortValues` 代替；后者有独立参数。Trace 同样支持 `--scroll-id`；LLM/RUM/事件还支持 `--scroll-type pre|next`、`--serialized-sort-values`、`--sort`、`--sort-order` 和 `--sort-operation`。具体游标配合方式见各自 `--help`。一次调用只返回一页。
+
+`issues search` 的已公开接口没有分页、条数或游标参数；若响应带 `hasMore:true`，需缩小服务、查询或时间范围，不能据一页结果声明已穷尽。此限制待后端接口契约确认。
+
+分组只能使用对应数据源和索引中的分析字段。聚合中的 `fields:{}` 是总计，不能当成分组结果；请求字段没有出现在任何分组行时，CLI 会向 stderr 警告。用 `-g <field>:2` 对已知有匹配的数据试查。查询使用字段实名（例如 `status`），响应中的 `attributes.status` 是呈现路径。全文查询经过分词，不能把它当子串或前缀查询；零命中时用同一时间窗的已知匹配查询核对。
+
+`--from` / `--to` / `metrics point --at` 接受 epoch 毫秒、10 位 epoch 秒或 ISO 时间。`--to` 必须配合 `--from`，`--from` 优先于 `--last`。建议明确使用 `Z` 或 `+08:00`，避免本机时区差异。
+
+失败退出码为 `1`，stderr 输出简洁错误，不输出 Node 堆栈。需要脚本解析错误时添加全局 `--json-errors`，stderr 格式为 `{"error":{"message":"...","status":400,"code":-201}}`（非 API 错误没有 status/code）。HTTP 非 2xx 或 API 非零 code 不会作为成功数据输出。HTTP 429 / code -17 需调用方退避，当前不自动重试。服务端若将故障包装成成功空响应，CLI 无法据此识别内部故障。
 
 ```bash
 # 按 ERROR 数量排序找出最严重的服务

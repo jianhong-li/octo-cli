@@ -1,4 +1,9 @@
-import { getExtraHeaders } from './config.js';
+import {
+  getDefaultEnv,
+  getExtraHeaders,
+  validateEnvironment,
+} from './config.js';
+import { ApiError } from './errors.js';
 
 declare const __PKG_VERSION__: string;
 
@@ -253,12 +258,26 @@ export class OctoClient {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`${res.status} ${res.statusText}: ${text}`.trim());
+      let body: { code?: number; message?: string } = {};
+      try {
+        body = JSON.parse(text) ?? {};
+      } catch {
+        // Gateways can return plain text or HTML instead of the API envelope.
+      }
+      throw new ApiError(
+        body.message || text || res.statusText || 'Request failed',
+        res.status,
+        body.code
+      );
     }
 
     const json = (await res.json()) as ApiResponse<T>;
     if (json.code !== 0) {
-      throw new Error(`API error (code=${json.code}): ${json.message}`);
+      throw new ApiError(
+        json.message || 'Invalid API response',
+        res.status,
+        json.code
+      );
     }
     return json.data;
   }
@@ -490,7 +509,7 @@ export class OctoClient {
   }) {
     return this.post(
       '/infra-octopus-openapi/v1/log-error-tracking/issues/batch-assign',
-      params
+      { ...params, dataSource: normalizeIssueDataSource(params.dataSource) }
     );
   }
 
@@ -503,7 +522,7 @@ export class OctoClient {
   }) {
     return this.put(
       '/infra-octopus-openapi/v1/log-error-tracking/issues/batch-update',
-      params
+      { ...params, dataSource: normalizeIssueDataSource(params.dataSource) }
     );
   }
 
@@ -777,8 +796,11 @@ export class OctoClient {
     return this.post('/infra-octopus-openapi/v1/rum/list', params);
   }
 
-  async rumDetail(id: string) {
-    return this.get(`/infra-octopus-openapi/v1/rum/${id}`);
+  async rumDetail(id: string, env: string = getDefaultEnv()) {
+    const qs = new URLSearchParams({ env: validateEnvironment(env) });
+    return this.get(
+      `/infra-octopus-openapi/v1/rum/${encodeURIComponent(id)}?${qs}`
+    );
   }
 
   async rumAggregate(params: {
