@@ -29,6 +29,8 @@ const examples: Record<string, string[]> = {
   ],
   'logs aggregate': [
     'octo logs aggregate -q "service = myapp AND level = ERROR" -l 30m -g k8s.pod.name:20 -a "*:count"',
+    'octo logs aggregate -e online -q "service = leo-exam AND log_type = http AND sc = 500" -l 30m -g "_jakarta.servlet.error.request_uri:10" -a "*:count" -o json',
+    'octo logs aggregate -e online -q "service = leo-exam AND log_type = http AND sc >= 500 AND sc <= 599" -l 30m -g "_jakarta.servlet.error.request_uri:10" -a "*:count" -o json',
   ],
   'trace search': [
     'octo trace search -q "trace_id = <TRACE_ID>" -l 1h -n 100',
@@ -106,6 +108,8 @@ const examples: Record<string, string[]> = {
   'metrics query': [
     'octo metrics query "as_count(sum(http_requests{}))" -l 1h --points 150',
     'octo metrics query "avg(cpu_usage{service=myapp})" -e test -l 2h',
+    'octo metrics query "as_count(sum(trace.service.errors{service = leo-exam, entry_type = http, http.status_code = 500}) by (operation, span.name))" -e online -l 30m -o json',
+    'octo metrics query "top(as_rate(sum(trace.service.errors{service = leo-exam, entry_type = http, http.status_code = 5*}) by (operation, span.name)), 10, max)" -e online -l 30m -o json',
   ],
   'metrics point': [
     'octo metrics point "as_count(sum(http_requests{}))" --at 1790596560000',
@@ -191,12 +195,25 @@ const logGroupableFields = `Groupable log fields:
   Common dimensions (availability/type varies by source and index):
     Kubernetes: k8s.node.name, k8s.container.name, pod_name, node_hostname.
     Deployment/logging: deployment, canary, log_type.
-    HTTP: status_code, sc, url, method.
+    HTTP: status_code, sc, url, method, _jakarta.servlet.error.request_uri.
     Client/user: platform, version, user_id.
   These examples are a starting point, not a complete field catalog. Confirm
   on matching data with -g <field>:2; missing fields can produce empty groups.
   Metric fields (long/double, e.g. duration) cannot be grouped (-222); a numeric
   name such as status_code is groupable only when indexed as a string dimension.`;
+
+const httpErrorLogNotes = `HTTP 500/5xx triage (services emitting servlet HTTP error logs, e.g. leo-exam):
+  log_type = http selects HTTP log records; their log level can vary.
+  sc = 500 selects HTTP 500; sc >= 500 AND sc <= 599 covers all 5xx.
+  _jakarta.servlet.error.request_uri is the original failed request URI in these
+  error logs. Preserve the leading underscore and dots in filters and -g.
+  Use -g "_jakarta.servlet.error.request_uri:10" -a "*:count" to locate Top 10
+  URIs by count over the query window, descending. fields:{} is the total row;
+  Top 10 group counts need not sum to the total. The URI field must be emitted
+  and groupable in that source/index; some HTTP errors may lack it.
+  Inspect a selected URI with logs search using the same env/--from/--to and
+  HTTP filter, plus _jakarta.servlet.error.request_uri = "/selected/path".
+  Use bracket lookup in jq: .fields["_jakarta.servlet.error.request_uri"].`;
 
 const metricQlNotes = `Metric QL differs from search syntax: wrap metric{tags} in an aggregation.
   Multiple queries are labeled A/B/C. --points is a target count; the backend
@@ -226,6 +243,18 @@ Metric QL (common):
   Arithmetic within one expression: sum(a{}) / 2, p99(histogram{}) * 1000.
   Multi-query formulas using A / B are not exposed by this CLI; fetch the
   component queries and combine locally.
+
+HTTP 500/5xx by endpoint (Trace/APM metrics):
+  trace.service.errors is a Count metric; filter entry_type = http and
+  http.status_code = 500 (exact) or http.status_code = 5* (all 5xx).
+  Group by (operation, span.name); span.name is the instrumented endpoint name,
+  often a route template, rather than the raw servlet error URI.
+  as_count(...) gives errors per time bucket; as_rate(...) gives errors/second.
+  top(expr, 10, max) ranks peak bucket counts/rates, not whole-window totals.
+  These metrics require Trace/APM collection. log_type and the servlet URI field
+  are log fields, not built-in metric tags. Counts can differ from logs because
+  collection/error classification and metric bucket boundaries differ.
+  For raw-URI counts over the log query window, use logs aggregate --help.
 
 Grouped response (-o json): [{id, labelList, times, values}, ...].
   labelList is a TWO-LEVEL array: labelList[i] is [{key,value}, ...] for series i;
@@ -258,7 +287,8 @@ function leafNotes(command: Command, key: string): string[] {
   if (options.has('--query') && key !== 'inspection reports')
     notes.push(searchNotes);
   if (options.has('--agg')) notes.push(aggregationNotes);
-  if (key === 'logs aggregate') notes.push(logGroupableFields);
+  if (key === 'logs aggregate')
+    notes.push(logGroupableFields, httpErrorLogNotes);
   if (options.has('--scroll-id'))
     notes.push(`Pagination: one page per invocation; hasMore=true means results are incomplete.
   Keep env, query, order/sort, and an absolute --from/--to window unchanged.

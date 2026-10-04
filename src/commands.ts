@@ -1307,7 +1307,7 @@ export function registerCommands(program: Command): void {
   metrics
     .command('query')
     .description('Query metrics timeseries')
-    .argument('<queries...>', 'Metric queries (e.g. "sum(test{}.as_count)")')
+    .argument('<queries...>', 'Metric queries (e.g. "as_count(sum(test{}))")')
     .option('-e, --env <env>', 'Environment')
     .option('-l, --last <duration>', 'Time range', '1h')
     .option('--from <time>', 'Start time')

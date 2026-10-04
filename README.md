@@ -144,6 +144,27 @@ octo-cli logs aggregate -q "level = ERROR" -g service    # 按服务聚合
 octo-cli logs aggregate -a "*:count" -g level:5 -l 30m   # 按 level 聚合 Top 5
 ```
 
+HTTP 500/5xx 可以先按接口聚合，快速定位错误入口和数量。对于 `leo-exam` 这类输出 servlet HTTP 错误日志的服务，使用 `log_type = http` 筛选 HTTP 日志、`sc` 筛选响应状态码，再按 `_jakarta.servlet.error.request_uri`（原始出错请求 URI）分组；字段名的前导下划线和点号必须保留。
+
+```bash
+# HTTP 500：固定时间窗，按原始请求 URI 的总日志数降序取 Top 10
+octo-cli logs aggregate -e online \
+  -q "service = leo-exam AND log_type = http AND sc = 500" \
+  --from 1790593581941 --to 1790603918735 \
+  -g "_jakarta.servlet.error.request_uri:10" -a "*:count" -o json > http500.json
+
+# 仅输出 URI 和数量；fields:{} 是总计行，单独识别，不当成接口
+jq -r '.[] | select(.fields["_jakarta.servlet.error.request_uri"] != null) |
+  [.fields["_jakarta.servlet.error.request_uri"], .values["count(*)"]] | @tsv' http500.json
+
+# 最近 30 分钟的全部 5xx（含 500、502、503 等）
+octo-cli logs aggregate -e online \
+  -q "service = leo-exam AND log_type = http AND sc >= 500 AND sc <= 599" \
+  -l 30m -g "_jakarta.servlet.error.request_uri:10" -a "*:count" -o json
+```
+
+HTTP 日志的 level 可以不同，因此这里直接使用 `log_type = http`。该 URI 字段需要由日志采集实际输出并在当前索引可分组；没有它的错误日志不能归到 URI 分组，Top 10 也只覆盖部分接口，分组数量之和未必等于总计。选中接口后，在相同环境和固定时间窗内使用 `logs search`，追加 `_jakarta.servlet.error.request_uri = "/selected/path"`，取少量样例及 `trace_id` 继续定位。其他数据源的状态码和 URI 字段可能不同，可用 `-g <field>:2` 探测。
+
 ### 告警
 
 ```bash
@@ -229,12 +250,28 @@ octo-cli inspection reports --task-group infra-db         # 按任务组名过�
 octo-cli trace search -q "service = myapp" -l 15m        # 搜索 Span
 octo-cli trace aggregate -a "duration:p95" -g service     # 按服务聚合 P95 延迟
 
-octo-cli metrics query "sum(http_requests{}.as_count)" -l 1h       # 时序查询
+octo-cli metrics query "as_count(sum(http_requests{}))" -l 1h       # 时序查询
 octo-cli metrics query "avg(cpu_usage{service=myapp})" --points 50  # 指定数据点数
-octo-cli metrics point "sum(error_count{}.as_count)"                 # 单点查询
+octo-cli metrics point "as_count(sum(error_count{}))"                 # 单点查询
 ```
 
 指标时序查询（`metrics query` / MCP `octo_metrics_query`）默认使用 UTC+8（北京时间）对齐日聚合边界，查询时间戳保持不变。
+
+HTTP 错误也可以用内置 Trace/APM Count 指标 `trace.service.errors` 按接口观察：`entry_type = http` 限定 HTTP 入口，`http.status_code = 500` 精确筛选 500，`http.status_code = 5*` 筛选全部 5xx；接口维度使用 `operation` 和 `span.name`。
+
+```bash
+# 各 HTTP 接口的 500 次数曲线：每个值是对应时间桶内的次数
+octo-cli metrics query \
+  "as_count(sum(trace.service.errors{service = leo-exam, entry_type = http, http.status_code = 500}) by (operation, span.name))" \
+  -e online -l 30m -o json > http500-metrics.json
+
+# 5xx 每秒错误数曲线：按峰值选出 Top 10 接口
+octo-cli metrics query \
+  "top(as_rate(sum(trace.service.errors{service = leo-exam, entry_type = http, http.status_code = 5*}) by (operation, span.name)), 10, max)" \
+  -e online -l 30m -o json > http5xx-metrics.json
+```
+
+这些指标需要启用 Trace/APM 采集。`span.name` 通常是规范化的路由模板，与日志中的原始 URI 不同；`log_type` 和 `_jakarta.servlet.error.request_uri` 是日志字段，不是内置指标标签。`as_count` 返回每桶次数，`as_rate` 返回每秒次数，`top(..., 10, max)` 按曲线峰值排序，不能当成整窗总次数排名。采集和错误判定口径、时间桶边界也会让指标数量与日志数量不同；需要按原始 URI 统计查询时间窗内的日志总量时，使用上面的 `logs aggregate`。分组指标响应的 `labelList[i]` 与 `values[i]` 按索引对应，解析示例见 `octo-cli metrics query --help`。
 
 ### 服务 / LLM / RUM / 事件 / 用户
 
