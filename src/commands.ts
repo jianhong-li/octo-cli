@@ -1476,11 +1476,20 @@ export function registerCommands(program: Command): void {
     .command('detail')
     .description('Get RUM event detail')
     .argument('<id>', 'RUM event ID')
+    .requiredOption(
+      '--timestamp <time>',
+      'Event timestamp from rum list: epoch ms, epoch seconds, or ISO time',
+      parseTimestamp
+    )
     .option('-e, --env <env>', 'Environment: online or test')
     .option('-o, --output <fmt>', 'Output format', 'json')
     .action(async (id, opts) => {
       const client = getClient();
-      const data = await client.rumDetail(id, opts.env ?? getDefaultEnv());
+      const data = await client.rumDetail(
+        id,
+        opts.env ?? getDefaultEnv(),
+        opts.timestamp
+      );
       printOutput(data, opts.output as OutputFormat);
     });
 

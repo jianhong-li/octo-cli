@@ -7,9 +7,11 @@ Make the CLI usable through its own help and expose supported query continuation
 - Fix record-per-line JSONL and record tables for paginated responses; preserve complete JSON responses and send continuation warnings to stderr.
 - Add trace cursors, log sort cursors, LLM/RUM/event scroll and sort flags, and topology entry filters.
 - Expose the documented log/RUM Issue source for search and detail in CLI and MCP; link built-in help to the official OpenAPI reference and clarify log sort cursors and trace end-time ordering.
-- Send the required environment for CLI and MCP RUM detail; accept epoch milliseconds/seconds for metric point timestamps.
+- Send the required environment and event timestamp for CLI and MCP RUM detail; accept epoch milliseconds/seconds for metric point timestamps.
 - Reject invalid environments, enum values, malformed limits, orphan end times, and excessive aggregation dimensions. Warn when requested group fields are missing from aggregate results.
 - Report failures without Node stack traces; add global `--json-errors` with HTTP status and API code on stderr.
-- Document actual defaults, value domains, examples, query/aggregation constraints, pagination, and the Issue search API's lack of documented pagination controls in built-in help.
+- Document actual defaults, value domains, examples, query/aggregation constraints, pagination, and the backend-confirmed 99-Issue cap without pagination controls in built-in help and truncation warnings.
 
 JSONL now emits records instead of page envelopes; use `--output json` for pagination metadata or consumers that require the prior envelope shape.
+
+RUM detail now requires `--timestamp` (CLI) or `timestamp` in epoch milliseconds (MCP), taken from the list record; the backend searches within one hour on either side of that event time.

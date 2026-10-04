@@ -484,7 +484,11 @@ describe('MCP tools', () => {
       { env: 'test', from: 1000, to: 2000, service: 'checkout' },
       client
     );
-    await handleMcpTool('octo_rum_detail', { id: 'rum-event-1' }, client);
+    await handleMcpTool(
+      'octo_rum_detail',
+      { id: 'rum-event-1', timestamp: 1790596560000 },
+      client
+    );
     await handleMcpTool(
       'octo_users_search',
       { names: ['alice', 'bob'] },
@@ -503,7 +507,7 @@ describe('MCP tools', () => {
     });
     expect(calls[1].method).toBe('GET');
     expect(calls[1].url).toBe(
-      'https://example.com/infra-octopus-openapi/v1/rum/rum-event-1?env=online'
+      'https://example.com/infra-octopus-openapi/v1/rum/rum-event-1?env=online&timestamp=1790596560000'
     );
     expect(calls[2].method).toBe('POST');
     expect(calls[2].url).toBe(

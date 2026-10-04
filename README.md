@@ -245,7 +245,7 @@ octo-cli services topo myapp                              # 服务拓扑图
 
 octo-cli llm -l 1h -q "model.name = gpt-4"              # LLM 可观测
 octo-cli rum list -e test -q "application.name = myapp" -l 1d   # RUM 会话
-octo-cli rum detail <id>                                  # RUM 事件详情
+octo-cli rum detail <id> --timestamp <event-time>          # RUM 事件详情，时间取自 list
 octo-cli rum aggregate -q "type = view" -a "*:count" -g "view.name:10" -l 1h
 octo-cli events -l 1d                                     # 部署事件
 octo-cli events aggregate -a "*:count" -g "type:10" -l 1d
@@ -308,9 +308,17 @@ octo-cli logs search -q "service = myapp" \
 
 日志 `--scroll-id` 使用上一页最后一条记录的 `id`，不能用 `serializedSortValues` 代替；官方接口说明后者应通过独立参数与 `scrollId` 配合使用。Trace 同样支持 `--scroll-id`，`--order` 按 Span 结束时间排序；LLM/RUM/事件还支持 `--scroll-type pre|next`、`--serialized-sort-values`、`--sort`、`--sort-order` 和 `--sort-operation`。具体游标配合方式见各自 `--help`。一次调用只返回一页。
 
-`issues search` 的已公开接口没有分页、条数或游标参数；若响应带 `hasMore:true`，需缩小服务、查询或时间范围，不能据一页结果声明已穷尽。此限制待后端接口契约确认。
+`issues search` 的后端接口固定最多返回 99 个 Issue，没有分页、条数或游标参数；`hasMore:true` 表示结果被截断，并不意味着存在下一页游标。需缩小服务、查询或时间范围，不能据一页结果声明已穷尽。JSONL/table 的 stderr 提示也会说明这一限制。
 
 `issues search` 和 `issues detail` 支持 `--source log|rum`，未指定时保持后端默认 `log`；查询 RUM Issue 请传 `--source rum`。它与 `rum detail` 查询原始 RUM 事件是不同入口。
+
+`rum detail` 必须提供列表记录的 `id`、`--timestamp`，并使用相同环境。时间支持毫秒、秒和 ISO 格式；后端在该时间前后各一小时查找记录，默认使用当前时间会漏掉历史事件，因此 CLI 不提供时间默认值。内置 MCP 的 `octo_rum_detail` 同样要求 `timestamp`，单位为 epoch 毫秒。
+
+```bash
+octo-cli rum list -e test -l 1h -o json > rum-page.json
+jq '.rumItems[] | {id, timestamp}' rum-page.json
+octo-cli rum detail <RUM_EVENT_ID> -e test --timestamp <TIMESTAMP_FROM_LIST>
+```
 
 分组只能使用对应数据源和索引中的分析字段。聚合中的 `fields:{}` 是总计，不能当成分组结果；请求字段没有出现在任何分组行时，CLI 会向 stderr 警告。用 `-g <field>:2` 对已知有匹配的数据试查。查询使用字段实名（例如 `status`），响应中的 `attributes.status` 是呈现路径。全文查询经过分词，不能把它当子串或前缀查询；零命中时用同一时间窗的已知匹配查询核对。
 
@@ -444,7 +452,7 @@ export OCTOPUS_EXTRA_HEADERS='{"X-Octopus-Tenant":"tenant-a"}'
 
 ## API 参考
 
-官方 [OpenAPI 文档入口](https://octopus-docs.zhenguanyu.com/1b42090d16b681749335c62b3ed505be) 提供完整请求/响应定义。根命令、命令组和叶子命令的 `--help` 均包含入口或对应领域链接。当前 [Issue 搜索接口](https://octopus-docs.zhenguanyu.com/1b42090d16b681a4b2b5f600cd9a7ba7) 文档没有分页请求参数，不能仅凭响应中的 `hasMore` 推断存在可用的翻页入口。
+官方 [OpenAPI 文档入口](https://octopus-docs.zhenguanyu.com/1b42090d16b681749335c62b3ed505be) 提供完整请求/响应定义。根命令、命令组和叶子命令的 `--help` 均包含入口或对应领域链接。当前 [Issue 搜索接口](https://octopus-docs.zhenguanyu.com/1b42090d16b681a4b2b5f600cd9a7ba7) 没有分页请求参数；已通过后端实现确认 `hasMore` 仅标记超过 99 条的结果截断。
 
 octo-cli 封装了 Octopus OpenAPI，默认地址 `https://octopus-app.zhenguanyu.com`：
 

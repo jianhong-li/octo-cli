@@ -44,14 +44,18 @@ describe('reported CLI regressions', () => {
 
   it('RUM detail sends explicit or configured env and safely encodes record IDs', async () => {
     const first = setup();
-    await first.program.parseAsync(['rum', 'detail', 'id/a', '-e', 'online'], {
-      from: 'user',
-    });
+    await first.program.parseAsync(
+      ['rum', 'detail', 'id/a', '-e', 'online', '--timestamp', '1790596560000'],
+      { from: 'user' }
+    );
     expect(first.calls[0].url).toBe(
-      'https://example.com/infra-octopus-openapi/v1/rum/id%2Fa?env=online'
+      'https://example.com/infra-octopus-openapi/v1/rum/id%2Fa?env=online&timestamp=1790596560000'
     );
     const second = setup();
-    await second.program.parseAsync(['rum', 'detail', 'id'], { from: 'user' });
+    await second.program.parseAsync(
+      ['rum', 'detail', 'id', '--timestamp', '1790596560000'],
+      { from: 'user' }
+    );
     expect(second.calls[0].url).toContain('?env=test');
   });
 
@@ -231,11 +235,19 @@ describe('reported CLI regressions', () => {
       getMcpTools().find((tool) => tool.name === 'octo_rum_detail')?.inputSchema
         .properties
     ).toHaveProperty('env');
-    await handleMcpTool('octo_rum_detail', { id: 'id', env: 'online' }, client);
-    await handleMcpTool('octo_rum_detail', { id: 'id' }, client);
+    await handleMcpTool(
+      'octo_rum_detail',
+      { id: 'id', env: 'online', timestamp: 1790596560000 },
+      client
+    );
+    await handleMcpTool(
+      'octo_rum_detail',
+      { id: 'id', timestamp: 1790596560000 },
+      client
+    );
     expect(calls.map((call) => call.url)).toEqual([
-      'https://example.com/infra-octopus-openapi/v1/rum/id?env=online',
-      'https://example.com/infra-octopus-openapi/v1/rum/id?env=test',
+      'https://example.com/infra-octopus-openapi/v1/rum/id?env=online&timestamp=1790596560000',
+      'https://example.com/infra-octopus-openapi/v1/rum/id?env=test&timestamp=1790596560000',
     ]);
   });
 
@@ -251,11 +263,56 @@ describe('reported CLI regressions', () => {
       )
     );
     const client = new OctoClient('https://example.com', { token: 'test' });
-    const result = await handleMcpTool('octo_rum_detail', { id: 'id' }, client);
+    const result = await handleMcpTool(
+      'octo_rum_detail',
+      { id: 'id', timestamp: 1790596560000 },
+      client
+    );
     expect(result).toMatchObject({
       isError: true,
       content: [{ text: 'Error: HTTP 400, code=-201: bad query' }],
     });
+  });
+
+  it.each(['1790596560000', '1790596560', '2026-09-28T19:56:00+08:00'])(
+    'RUM detail locates an event using timestamp %s',
+    async (timestamp) => {
+      const { program, calls } = setup();
+      await program.parseAsync(
+        ['rum', 'detail', 'id', '--timestamp', timestamp],
+        {
+          from: 'user',
+        }
+      );
+      expect(new URL(calls[0].url).searchParams.get('timestamp')).toBe(
+        '1790596560000'
+      );
+    }
+  );
+
+  it('requires a valid RUM event timestamp in CLI and MCP before HTTP', async () => {
+    const { program, fetch } = setup();
+    await expect(
+      program.parseAsync(['rum', 'detail', 'id'], { from: 'user' })
+    ).rejects.toThrow('timestamp');
+    await expect(
+      program.parseAsync(['rum', 'detail', 'id', '--timestamp', 'invalid'], {
+        from: 'user',
+      })
+    ).rejects.toThrow('Invalid time');
+    const tool = getMcpTools().find((tool) => tool.name === 'octo_rum_detail');
+    expect(tool?.inputSchema.required).toEqual(['id', 'timestamp']);
+    const client = new OctoClient('https://example.com', { token: 'test' });
+    for (const timestamp of [undefined, '1790596560000', -1, 1.5, NaN]) {
+      const result = await handleMcpTool(
+        'octo_rum_detail',
+        { id: 'id', timestamp },
+        client
+      );
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content[0].text).toContain('event timestamp');
+    }
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it.each([undefined, 'log', 'rum'])(

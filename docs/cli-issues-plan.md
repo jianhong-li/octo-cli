@@ -20,12 +20,12 @@ CLI 的 help 承担命令、参数、默认值、限制、示例和输出契约�
 | --- | --- | --- |
 | [#47](https://github.com/kanyun-inc/octo-cli/issues/47) | JSONL 每行记录，table 按记录列显示，JSON 保留原始包装，分页提醒在 stderr | `src/output.test.ts` |
 | [#48](https://github.com/kanyun-inc/octo-cli/issues/48) | 文档说明日志 record id 游标；Trace、LLM、RUM、事件暴露 client 支持的 scroll 参数 | `src/cli-regressions.test.ts` |
-| [#49](https://github.com/kanyun-inc/octo-cli/issues/49) | RUM detail 增加显式/默认 env，CLI 和内置 MCP 都携带参数，记录 id 做 URL 编码 | `src/cli-regressions.test.ts`、`src/mcp.test.ts` |
+| [#49](https://github.com/kanyun-inc/octo-cli/issues/49) | RUM detail 增加显式/默认 env 和必填事件 timestamp，CLI/MCP 均携带参数，记录 id 做 URL 编码 | `src/cli-regressions.test.ts`、`src/mcp.test.ts` |
 | [#50](https://github.com/kanyun-inc/octo-cli/issues/50) | `--at` 与范围时间共享 epoch ms/seconds/ISO 解析，非法输入在 HTTP 前失败 | `src/time.test.ts`、`src/cli-regressions.test.ts` |
 | [#51](https://github.com/kanyun-inc/octo-cli/issues/51) | 非法环境报错；孤立 `--to` 报错；`alerts -s all` 是明确别名；有数据但未返回请求分组时警告 | `src/aggregate.test.ts`、`src/cli-regressions.test.ts` |
 | [#52](https://github.com/kanyun-inc/octo-cli/issues/52) | async 顶层错误捕获、单行 stderr、退出码 1；`--json-errors` 保留 HTTP status/API code | `src/errors.test.ts` |
 | [#53](https://github.com/kanyun-inc/octo-cli/issues/53) | assign/update 共用 log/rum 校验，shared client 也保护非 CLI 调用者 | `src/cli-regressions.test.ts` |
-| [#54](https://github.com/kanyun-inc/octo-cli/issues/54) | 补 topology filters、scroll/sort；额外暴露 services list 的 service filter。Issue search 分页尚无可确认接口参数，见下方限制 | `src/cli-regressions.test.ts` |
+| [#54](https://github.com/kanyun-inc/octo-cli/issues/54) | 补 topology filters、scroll/sort；额外暴露 services list 的 service filter。源码确认 Issue search 固定最多 99 条且没有分页契约，见下方限制 | `src/cli-regressions.test.ts`、`src/output.test.ts` |
 | [#55](https://github.com/kanyun-inc/octo-cli/issues/55) | 主 skill 工作流重构留到第二阶段；本轮 events help 已提供具体变更事件类型 | 后续 skill 验收 |
 | [#56](https://github.com/kanyun-inc/octo-cli/issues/56) | 分析字段、group probe、操作/类型、JSONL、字段实名语义移入 help；主 skill 的本地路由留到第二阶段 | help 覆盖测试；后续 skill 验收 |
 | [#57](https://github.com/kanyun-inc/octo-cli/issues/57) | 全命令层级 help；叶子参数值域、真实默认值、实例、语义、API 限制和完整手册入口 | `src/cli-regressions.test.ts` |
@@ -33,7 +33,7 @@ CLI 的 help 承担命令、参数、默认值、限制、示例和输出契约�
 
 ## 明确的接口限制
 
-- **Issue search 分页**：2026-10-04 已通过用户提供的官方 OpenAPI 入口读取 [错误追踪接口页](https://octopus-docs.zhenguanyu.com/1b42090d16b681a4b2b5f600cd9a7ba7)。请求参数没有 limit/page/scroll，响应仍包含 hasMore；不能假设添加字段后就能分页。help 说明当前限制及缩小查询窗口的办法。需要后端提供分页契约后才能完成 #54 的这一项。
+- **Issue search 分页**：2026-10-04 已核对 [错误追踪接口页](https://octopus-docs.zhenguanyu.com/1b42090d16b681a4b2b5f600cd9a7ba7) 和用户提供的后端源码。请求对象没有 limit/page/scroll，Logic 固定查询 100 条并最多返回 99 条，额外一条仅用于判断 hasMore。help 与 JSONL/table 警告说明截断限制及缩小查询窗口的办法。需要后端新增分页契约后才能完成 #54 的这一项。
 - **分组缺失**：可能是字段不可分组，也可能是当前匹配记录不含此字段。因此使用警告而非认定字段非法；已知零条总计和空数组不告警。不额外请求巨大的字段目录，目录成员也不能证明可分组。
 - **服务端掩盖故障**：HTTP 失败/API 非零 code 可靠报错；若服务端输出 code=0 的正常空响应，CLI 无法区分内部故障与真实零命中。不声称修复了 #42 的所有后端行为。
 - **限流**：本轮文档化 HTTP 429/API -17，但不自动重试，尤其避免重放写操作。
@@ -45,7 +45,7 @@ CLI 的 help 承担命令、参数、默认值、限制、示例和输出契约�
 
 ## 本轮验证
 
-- `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 全部通过；官方文档对照补充后为 9 个测试文件，234 个测试（原有 171 个，新增 63 个）。
+- `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 全部通过；源码对照补充后为 9 个测试文件，240 个测试（原有 171 个，新增 69 个）。
 - 构建后的真实 CLI 通过本地 HTTP 服务验证：无认证/请求的 help、JSONL 逐记录、JSON 包装和游标透传、RUM detail env、metric epoch 参数、API 错误的普通/JSON stderr、HTTP 前非法环境校验、嵌套命令解析错误的退出码和 JSON 格式。
 - 真实进程验收发现 Commander 的子命令需要分别设置退出捕获器；已修正并增加嵌套解析错误回归测试。
 - `git diff --check` 通过；包含 minor changeset，不手动修改版本号。
@@ -62,3 +62,12 @@ CLI 的 help 承担命令、参数、默认值、限制、示例和输出契约�
 - RUM 文档示例没有列出 detail 的 env 参数；#49 的真实 400 证明当前服务要求 env，保留实测修复。接口文档与线上行为存在差异时在此记录，不从示例缺字段反推字段不需要。
 - 所有 help 层级加入官方入口/领域链接；不修改主 skill 和子 skill。
 - 官方文档对照补充新增 5 个回归用例，234 个测试及四项检查通过；实际 CLI 进程还验证了 RUM Issue search 的 dataSource 和 detail 的 query 参数、Issue ID URL 编码。
+
+## 后端源码对照补充（2026-10-04）
+
+- 只读核对后端默认分支的 OpenAPI Controller、请求对象、Logic 与既有测试；未修改后端或执行部署。源码契约尚未与生产部署版本逐一核对。
+- Issue search 没有隐藏的分页字段，hasMore 仅标记超过 99 条的截断；不添加无法工作的 CLI 翻页参数。
+- RUM detail Controller 同时要求 env 和 timestamp，按 timestamp 前后各一小时设置查询范围。此前仅依据 #49 报错补 env 不完整，现增加必填 `--timestamp`，支持毫秒/秒/ISO；MCP 同样要求 epoch 毫秒 timestamp，shared client 校验缺失或非法数值。
+- help/README 提供从 RUM list 记录取得 id/timestamp 的流程；不使用当前时间默认值。changeset 记录 RUM detail 参数变化。
+- 内部源码地址和专有实现不写入开源仓库，只记录 CLI 所需的接口行为。
+- 新增 6 个回归用例，240 个测试通过。构建后的真实进程验证 RUM 秒时间转换为毫秒、缺少 timestamp 的 JSON 错误且不发 HTTP、无认证依赖的 detail help，以及 Issue 截断时 stdout 逐记录和 stderr 的上限提示。

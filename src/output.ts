@@ -29,7 +29,9 @@ export function printOutput(
       records = page[key];
       if (page.hasMore === true || page.lastPage === false) {
         console.error(
-          'More records are available. Use -o json for pagination metadata and keep the same filters/time range when continuing.'
+          key === 'issues'
+            ? 'More records match this Issue search. The API returns at most 99 Issues and has no pagination controls; narrow the service/query/time window. This result is incomplete.'
+            : 'More records are available. Use -o json for pagination metadata and keep the same filters/time range when continuing.'
         );
       }
     }

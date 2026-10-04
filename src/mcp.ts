@@ -1197,14 +1197,20 @@ export function getMcpTools() {
     },
     {
       name: 'octo_rum_detail',
-      description: 'Get Octopus RUM event detail by event ID.',
+      description:
+        'Get Octopus RUM event detail using the ID and timestamp returned by RUM list. The backend searches within one hour on either side of the timestamp.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           id: { type: 'string', description: 'RUM event ID' },
           env: envProp,
+          timestamp: {
+            type: 'integer',
+            minimum: 0,
+            description: 'Event timestamp from RUM list, in epoch milliseconds',
+          },
         },
-        required: ['id'],
+        required: ['id', 'timestamp'],
       },
     },
     {
@@ -1835,7 +1841,8 @@ export async function handleMcpTool(
       case 'octo_rum_detail': {
         const data = await client.rumDetail(
           String(args.id),
-          String(args.env ?? getDefaultEnv())
+          String(args.env ?? getDefaultEnv()),
+          args.timestamp as number
         );
         return ok(JSON.stringify(data, null, 2));
       }

@@ -121,7 +121,9 @@ const examples: Record<string, string[]> = {
   'rum list': [
     'octo rum list -e test -q "application.name = myapp AND type = resource" -l 1h -n 20',
   ],
-  'rum detail': ['octo rum detail <RUM_EVENT_ID> -e test'],
+  'rum detail': [
+    'octo rum detail <RUM_EVENT_ID> -e test --timestamp 1790596560000',
+  ],
   'rum aggregate': [
     'octo rum aggregate -q "type = view" -a "*:count" -g view.name:10 -l 1h',
   ],
@@ -223,7 +225,11 @@ function leafNotes(command: Command, key: string): string[] {
     );
   if (key === 'issues search')
     notes.push(
-      'API limitation: the documented Issue search endpoint has no page/limit/scroll\n  parameters. If hasMore=true, narrow the service/query/time window; this CLI\n  cannot guarantee an exhaustive Issue list. Use --status all to include all states.'
+      'API limitation: Issue search returns at most 99 Issues and has no page/limit/scroll\n  parameters. hasMore=true indicates truncation, not an available next-page cursor.\n  Narrow the service/query/time window; this CLI cannot guarantee an exhaustive\n  Issue list. Use --status all to include all states.'
+    );
+  if (key === 'rum detail')
+    notes.push(
+      'Required: --timestamp must be the event timestamp returned by rum list.\n  Accepts 13-digit epoch ms, 10-digit epoch seconds, or ISO time. The backend\n  searches within one hour on either side of it; using now can miss old events.\n  Use the same environment as rum list. The record id alone is insufficient.'
     );
   if (
     key === 'alerts search' ||

@@ -32,6 +32,31 @@ describe('record output', () => {
   });
 
   it.each(['jsonl', 'table'] as const)(
+    'explains truncated Issues without suggesting a nonexistent next page for %s',
+    (format) => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      const error = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined);
+      const page = { issues: [{ id: 'issue-1' }], hasMore: true };
+      printOutput(page, format);
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'at most 99 Issues and has no pagination controls'
+        )
+      );
+      expect(error.mock.calls[0][0]).toContain(
+        'narrow the service/query/time window'
+      );
+      if (format === 'jsonl')
+        expect(JSON.parse(log.mock.calls[0][0])).toEqual(page.issues[0]);
+      error.mockClear();
+      printOutput({ ...page, hasMore: false }, format);
+      expect(error).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['jsonl', 'table'] as const)(
     'prints no data for an empty %s page',
     (format) => {
       const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);

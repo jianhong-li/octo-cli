@@ -808,8 +808,20 @@ export class OctoClient {
     return this.post('/infra-octopus-openapi/v1/rum/list', params);
   }
 
-  async rumDetail(id: string, env: string = getDefaultEnv()) {
-    const qs = new URLSearchParams({ env: validateEnvironment(env) });
+  async rumDetail(
+    id: string,
+    env: string = getDefaultEnv(),
+    timestamp: number
+  ) {
+    if (!Number.isSafeInteger(timestamp) || timestamp < 0) {
+      throw new Error(
+        'RUM detail requires the event timestamp in epoch milliseconds'
+      );
+    }
+    const qs = new URLSearchParams({
+      env: validateEnvironment(env),
+      timestamp: String(timestamp),
+    });
     return this.get(
       `/infra-octopus-openapi/v1/rum/${encodeURIComponent(id)}?${qs}`
     );
