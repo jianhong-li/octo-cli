@@ -228,7 +228,11 @@ function leafNotes(command: Command, key: string): string[] {
   Continue with identical env/query/from/to/order/sort/scroll-type, using an
   absolute time window. Pass optional cursor values only when present/nonempty:
   jq -r '.scrollId // empty' /tmp/logs.cursor
-  jq -r '.serializedSortValues // empty' /tmp/logs.cursor`);
+  jq -r '.serializedSortValues // empty' /tmp/logs.cursor
+  Use one file per query stream and per concurrent worker; sharing a file
+  between concurrent writers is unsafe — the atomic replace prevents torn
+  reads, not lost updates. A stale file only means retry material; always
+  gate on exit 0.`);
   if (key === 'trace search')
     notes.push('--order sorts by span END time (asc/desc), not start time.');
   if (options.has('--sort-operation'))
