@@ -215,14 +215,126 @@ const httpErrorLogNotes = `HTTP 500/5xx triage (services emitting servlet HTTP e
   HTTP filter, plus _jakarta.servlet.error.request_uri = "/selected/path".
   Use bracket lookup in jq: .fields["_jakarta.servlet.error.request_uri"].`;
 
+const metricGroupingNotes = `Grouping rule: by (labels) is a SUFFIX of a SPACE AGGREGATION.
+  Put it immediately after that aggregate's closing parenthesis. Supported:
+  sum/avg/min/max/count/count_values/p50/p95/p99/p999/p9999/p99.9.
+  Each by belongs to its preceding aggregate, including nested aggregates.
+  as_rate/as_count/top/moving_rollup/default and arithmetic wrap the WHOLE
+  "aggregate + by" expression; these wrappers do not own a by suffix.
+  Typical time rollup: sum(rollup(m{}, default, 1m)) by (service).
+  rollup/advanced_rollup do not own by either; keep by on the space aggregate
+  whether the time function is inside it or wraps an already grouped result.
+  VALID:
+    sum(m{}) by (service)
+    as_rate(sum(m{}) by (service))
+    as_count(sum(rollup(m{}, default, 1m)) by (service))
+    as_rate(sum(advanced_rollup(m{}, default, 1m, auto)) by (service))
+    as_rate(count_values(h{}) by (destKey))
+    top(sum(m{}) by (span.name), 10, max)
+    top((p99(h{}) by (service) * 1000), 5, max)
+    moving_rollup(sum(m{}) by (service), sum, 5m)
+    default(sum(m{}) by (service), 0)
+    (p99(h{}) by (service)) * 1000
+  INVALID:
+    as_rate(sum(m{})) by (service)           -- by is outside as_rate
+    as_rate(sum(m{} by (service)))           -- by is inside sum's argument
+    as_rate(sum(m{tag = value by (service)})) -- by is inside the tag filter
+    moving_rollup(sum(m{}), sum, 5m) by (service) -- by is on a time function`;
+
+const metricRecipeNotes = `Metric recipes (replace service/database/cluster/container labels for your deployment):
+  Pass ONE complete QL as a quoted positional argument; for example:
+    octo metrics query '<QL below>' -e online -l 30m -o json > metrics.json
+  All recipes use METRIC storage, including trace.* metrics. Raw Span retention
+  (often 7 days) does not apply to these series; confirm the metric/source's
+  retention policy. Metric names and labels require the corresponding collection.
+
+  1. Service QPS: explicit 1m buckets, or backend-selected resolution.
+    as_rate(sum(rollup(trace.service.requests{service = "leo-exam"}, default, 1m)))
+    as_rate(sum(trace.service.requests{service = "leo-exam"}))
+    Timeseries resolution has a 10s minimum; automatic resolution may be coarser
+    depending on the query window/--points. Short windows do not guarantee 10s.
+
+  2. Service entry latency (Trace duration metrics: ms; / 1000 converts to seconds).
+    p95(trace.service.duration{service = "leo-exam"})
+    p99(trace.service.duration{service = "leo-exam"}) by (span.name)
+
+  3. Downstream latency by dependency type/service (Trace duration: ms).
+    p99(trace.exit.duration{service = "leo-exam"}) by (downstream.entry_type, downstream.service)
+    p99(trace.exit.duration{service = "leo-exam", downstream.entry_type = cache}) by (downstream.service)
+
+  4. Per-Pod CPU: CPU seconds/second = cores used, not utilization by itself.
+    as_rate(sum(container.cpu.time{service = "leo-exam", k8s.container.name = http-server, state IN (user, system)}) by (k8s.pod.name))
+    max(k8s.pod.container.cpu.limit{container = http-server, service = "leo-exam"}) by (k8s.pod.name)
+    Utilization = cores used / CPU limit; multiply by 100 for percent. You can
+    divide these TWO COMPLETE expressions in one QL, or fetch both queries and
+    divide locally after matching Pod labels/timestamps. Check missing/zero limits.
+    Panel aliases A/B are not available as CLI formula queries.
+
+  5. Redis client latency (seconds) and per-minute errors.
+    p99(infra_commons_kv_request_duration_seconds{service = "leo-exam"}) by (clusterName)
+    as_count(sum(rollup(infra_commons_kv_request_errors_total{service = "leo-exam"}, default, 1m)) by (service.instance.id, clusterName))
+    Multiply latency by 1000 for ms; clusterName is the client dbKey in this setup.
+
+  6. RPC client QPS (Histogram observation count) and per-minute errors.
+    as_rate(count_values(infra_rpc_client_request_duration_seconds{service = "leo-exam"}) by (destKey))
+    as_count(sum(rollup(infra_rpc_client_request_errors_total{service = "leo-exam"}, default, 1m)) by (key))
+
+  7. MySQL QPS and average latency (seconds; verify the actual database label).
+    as_rate(count_values(infra_mysql_request_duration_seconds{database = "leo-exam"}) by (table, destKey, key))
+    avg(infra_mysql_request_duration_seconds{database = "leo-exam"}) by (table)
+    An empty result does not verify that the metric exists or the database label
+    matches; inspect its alert/panel QL and collection before using this recipe.
+
+  8. Pool load / active threads by pool and Pod (interpret each metric's units).
+    sum(fenbi_actuator_object_pool_load_count{service = "leo-exam"}) by (name, k8s.pod.name)
+    avg(fenbi_actuator_thread_pool_active_count{service = "leo-exam"}) by (name, k8s.pod.name)
+
+  9. Redis server QPS, memory bytes, blocked clients, and slowlog increment.
+    as_rate(sum(rollup(redis_commands_processed_total{cluster = "leo-exam-new-redis-online"}, default, 1m)) by (service.instance.id))
+    sum(redis_memory_used_bytes{cluster = "leo-exam-new-redis-online"}) by (service.instance.id)
+    sum(redis_blocked_clients{cluster = "leo-exam-new-redis-online"}) by (service.instance.id)
+    max(increase(redis_slowlog_length{cluster = "leo-exam-new-redis-online"}, 1m, 1m)) by (service.instance.id)
+
+Labels and naming pitfalls:
+  In the leo-exam KV setup, clusterName is a dbKey such as
+  leo-exam-store-2-redis-online; Redis exporter cluster uses a resource name such
+  as leo-exam-new-redis-online. Confirm labels; these identifiers are not interchangeable.
+  service.instance.id may name an exporter endpoint (:9121), not the Redis data
+  endpoint (:6379). DBPaaS instance/cluster names and Trace Redis:<dbKey> names
+  can differ; correlate through resource metadata, not a port/name substitution.
+  N/A labels vary by collection. Do not use status=N/A on trace.service.requests
+  to count errors; use trace.service.errors (HTTP: http.status_code) or source
+  error counters/logs. Inspect actual labels before grouping by Pod/host/instance:
+  some Trace metrics HAVE Pod labels; container/fenbi_actuator metrics also do.
+  Empty series can mean a wrong name, labels, env, window, or missing collection.
+  All-zero series (e.g. redis_instantaneous_ops_per_sec in some setups) alone
+  prove neither collector completeness nor collection failure; cross-check its
+  source and a companion counter such as redis_commands_processed_total.
+  Tag filters support =, !=, IN (...), and * wildcards; =~ is unsupported.
+
+Metric discovery (no metrics names command yet):
+  Reuse QL from a metric alert or a dashboard panel; verify metric names, labels,
+  units, and env rather than guessing. Inspect metricQl in alert detail/rule detail:
+    octo alerts detail <ALERT_ID> -o json > alert.json
+    jq -r '.. | objects | .metricQl? // empty' alert.json
+    octo alerts rule-details --ids <RULE_ID> -o json
+  Dashboard panel query/configuration is another source; substitute template
+  variables with actual labels. Dashboard reading is not exposed by this CLI;
+  use the Web UI or its separately authenticated dashboard/get API.
+  These are discovery clues, not a complete/current metric catalog. Keep a fixed
+  env/time window and confirm returned labels/data before trusting a copied QL.`;
+
 const metricQlNotes = `Metric QL differs from search syntax: wrap metric{tags} in an aggregation.
   Multiple queries are labeled A/B/C. --points is a target count; the backend
   may adjust it. Day aggregations align to UTC+8; timestamps are not shifted.
 
 Metric QL (common):
   Space aggregation: sum(m{tags}), avg(...), min(...), max(...), count(...).
-  Histogram percentiles: p50/p95/p99/p999/p9999(m{tags}).
+  Histogram percentiles: p50/p95/p99/p999/p9999/p99.9(m{tags}).
   Group: sum(m{service = *}) by (service, clusterName).
+
+${metricGroupingNotes}
+
   Tag filters: tag = value, tag != value, tag = * (wildcard), tag in (a,b).
   Commas between filters mean AND: m{service = api, env != test}.
   PromQL's =~ operator is not supported.
@@ -232,17 +344,24 @@ Metric QL (common):
       e.g. sum(advanced_rollup(counter{}, sum, 5m, 1m)).
     moving_rollup(expr, fn, window): apply after space aggregation;
       e.g. moving_rollup(sum(counter{}), sum, 5m).
-    increase(expr, window, granularity): e.g. increase(sum(counter{}), 5m, 1m).
+    increase(expr, window, granularity): e.g. max(increase(gauge{}, 5m, 1m)).
+      Direct rate/increase on a RAW metric requires Gauge; Count returns -211.
+      Applying increase after aggregation/rollup is a different operation and
+      can accept a derived series; use as_rate/as_count for Count conversion.
     Time arguments accept 30s/1m/1h/1d/1w or auto (backend-selected interval).
   Count conversion: as_rate(sum(counter{})) (per second),
     as_count(sum(counter{})) (count per interval). Use for Count metrics;
     for Histograms, first count_values(histogram{}) to count observations.
+    Grouped rate: as_rate(sum(counter{}) by (service)).
+    Grouped minute count: as_count(sum(rollup(counter{}, default, 1m)) by (service)).
+    Grouped Histogram QPS: as_rate(count_values(histogram{}) by (destKey)).
   default(expr, v) fills missing values; e.g. default(sum(m{}), 0).
   top(expr, N, agg) selects N series; agg is avg/max/min/last;
     e.g. top(sum(m{}) by (service), 10, max).
   Arithmetic within one expression: sum(a{}) / 2, p99(histogram{}) * 1000.
-  Multi-query formulas using A / B are not exposed by this CLI; fetch the
-  component queries and combine locally.
+  Two complete metric expressions can also be combined when group labels are
+  compatible. Panel query aliases A/B (e.g. A / B) are not exposed by this CLI;
+  inline the complete expressions or fetch components and combine locally.
 
 HTTP 500/5xx by endpoint (Trace/APM metrics):
   trace.service.errors is a Count metric; filter entry_type = http and
@@ -255,6 +374,8 @@ HTTP 500/5xx by endpoint (Trace/APM metrics):
   are log fields, not built-in metric tags. Counts can differ from logs because
   collection/error classification and metric bucket boundaries differ.
   For raw-URI counts over the log query window, use logs aggregate --help.
+
+${metricRecipeNotes}
 
 Grouped response (-o json): [{id, labelList, times, values}, ...].
   labelList is a TWO-LEVEL array: labelList[i] is [{key,value}, ...] for series i;
@@ -350,7 +471,10 @@ function leafNotes(command: Command, key: string): string[] {
   if (key === 'metrics query') notes.push(metricQlNotes);
   if (key === 'metrics point')
     notes.push(
-      '--at accepts epoch milliseconds, epoch seconds, or ISO timestamps; default: now.'
+      `--at accepts epoch milliseconds, epoch seconds, or ISO timestamps; default: now.
+  Metric QL functions/recipes/discovery: octo metrics query --help.
+
+${metricGroupingNotes}`
     );
   if (['alerts silence', 'alerts unsilence'].includes(key))
     notes.push(
