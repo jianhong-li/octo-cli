@@ -4,6 +4,7 @@ import {
   validateEnvironment,
 } from './config.js';
 import { ApiError } from './errors.js';
+import { getMetricGroupingHint } from './metric-ql.js';
 
 declare const __PKG_VERSION__: string;
 
@@ -714,6 +715,31 @@ export class OctoClient {
 
   // --- Metrics ---
 
+  /** Add guidance only after the server rejects metric QL; preserve the failure. */
+  private async queryMetrics<
+    T extends { queries: { id: string; query: string }[] },
+  >(path: string, params: T) {
+    try {
+      return await this.post(path, params);
+    } catch (error) {
+      if (
+        error instanceof ApiError &&
+        error.code === -201 &&
+        /\bby\b/i.test(error.message)
+      ) {
+        const hints = params.queries.flatMap(({ id, query }) => {
+          const hint =
+            typeof query === 'string'
+              ? getMetricGroupingHint(query)
+              : undefined;
+          return hint ? [`Query ${JSON.stringify(id)}: ${hint}`] : [];
+        });
+        if (hints.length) error.hints = hints;
+      }
+      throw error;
+    }
+  }
+
   async metricsTimeseries(params: {
     env: string;
     from: number;
@@ -721,10 +747,10 @@ export class OctoClient {
     pointCount?: number;
     queries: { id: string; query: string; dataSource: string }[];
   }) {
-    return this.post('/infra-octopus-openapi/v1/metrics/query/timeseries', {
-      ...params,
-      userUtcHour: 8,
-    });
+    return this.queryMetrics(
+      '/infra-octopus-openapi/v1/metrics/query/timeseries',
+      { ...params, userUtcHour: 8 }
+    );
   }
 
   async metricsQuery(params: {
@@ -732,7 +758,7 @@ export class OctoClient {
     to: number;
     queries: { id: string; query: string; dataSource: string }[];
   }) {
-    return this.post(
+    return this.queryMetrics(
       '/infra-octopus-openapi/v1/metrics/query/queryMetric',
       params
     );

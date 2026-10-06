@@ -15,7 +15,7 @@ program
   .version(__PKG_VERSION__)
   .option(
     '--json-errors',
-    'Print failures as {error:{message,status?,code?}} JSON on stderr'
+    'Print failures as {error:{message,status?,code?,hints?}} JSON on stderr'
   );
 
 registerCommands(program);

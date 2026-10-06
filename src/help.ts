@@ -239,7 +239,10 @@ const metricGroupingNotes = `Grouping rule: by (labels) is a SUFFIX of a SPACE A
     as_rate(sum(m{})) by (service)           -- by is outside as_rate
     as_rate(sum(m{} by (service)))           -- by is inside sum's argument
     as_rate(sum(m{tag = value by (service)})) -- by is inside the tag filter
-    moving_rollup(sum(m{}), sum, 5m) by (service) -- by is on a time function`;
+    moving_rollup(sum(m{}), sum, 5m) by (service) -- by is on a time function
+  If the backend reports a by syntax error (-201), the CLI adds a targeted hint
+  for these recognized forms. The original error/status/code and nonzero exit
+  remain; queries are never automatically rewritten. JSON errors carry hints.`;
 
 const metricRecipeNotes = `Metric recipes (replace service/database/cluster/container labels for your deployment):
   Pass ONE complete QL as a quoted positional argument; for example:
@@ -589,7 +592,7 @@ Config: OCTOPUS_BASE_URL overrides config.base_url; default:
 OCTOPUS_ENV overrides config.env (online/test); fallback: online.
 OCTOPUS_EXTRA_HEADERS accepts a JSON object of additional HTTP headers.
 Failures: exit code 1, concise stderr, no stack trace. --json-errors emits
-{error:{message,status?,code?}} to stderr; stdout remains available for data.
+{error:{message,status?,code?,hints?}} to stderr; stdout remains available for data.
 HTTP failures and nonzero API codes are errors. No automatic retries;
 rate limits (HTTP 429/code -17) require caller backoff. Successful empty
 responses cannot reveal backend failures masked by the server.

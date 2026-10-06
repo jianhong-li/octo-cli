@@ -5,7 +5,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
-    public code?: number
+    public code?: number,
+    public hints?: string[]
   ) {
     super(message);
     this.name = 'ApiError';
@@ -40,6 +41,9 @@ export async function runCli(
       ...(error instanceof ApiError
         ? { status: error.status, code: error.code }
         : {}),
+      ...(error instanceof ApiError && error.hints?.length
+        ? { hints: error.hints }
+        : {}),
     };
     if (jsonErrors) console.error(JSON.stringify({ error: details }));
     else if (!(error instanceof CommanderError)) {
@@ -47,7 +51,11 @@ export async function runCli(
         error instanceof ApiError
           ? `HTTP ${error.status}${error.code === undefined ? '' : `, code=${error.code}`}: `
           : '';
-      console.error(`Error: ${prefix}${message}`);
+      const hints =
+        error instanceof ApiError
+          ? error.hints?.map((hint) => `Hint: ${hint}`).join('\n')
+          : undefined;
+      console.error(`Error: ${prefix}${message}${hints ? `\n${hints}` : ''}`);
     }
     process.exitCode = 1;
   }
