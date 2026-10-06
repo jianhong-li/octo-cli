@@ -257,7 +257,7 @@ octo-cli metrics point "as_count(sum(error_count{}))"                 # 单点�
 
 指标时序查询（`metrics query` / MCP `octo_metrics_query`）默认使用 UTC+8（北京时间）对齐日聚合边界，查询时间戳保持不变。
 
-`by (...)` 紧跟空间聚合函数右括号，例如 `as_rate(sum(m{}) by (service))`，不能写成 `as_rate(sum(m{})) by (service)`。`metrics query`／`metrics point` 收到后端 `by` 语法错误（`-201`）时，会针对已识别的错误位置追加 `Hint:`，多查询提示带查询编号；`--json-errors` 使用可选的 `error.hints` 数组。原始错误、HTTP status/API code 和非零退出码保持不变，不自动改写 QL。完整正反例见 `metrics query --help`。
+`by (...)` 紧跟空间聚合函数右括号，例如 `as_rate(sum(m{}) by (service))`，不能写成 `as_rate(sum(m{})) by (service)`。`metrics query`／`metrics point` 收到后端 QL 语法错误（`-201`）时，会针对已识别的 `by` 错位或 PromQL 风格 `tag =~ "regex"` 追加 `Hint:`，多查询提示带查询编号；`--json-errors` 使用可选的 `error.hints` 数组。`=~` 提示使用 `=` 精确匹配、`IN (...)` 列表或 `=` 搭配 `*` 通配；正则与通配语义不同，不自动转换。字符串值里的 `=~` 不触发。原始错误、HTTP status/API code 和非零退出码保持不变，不自动改写 QL。完整正反例见 `metrics query --help`。
 
 HTTP 错误也可以用内置 Trace/APM Count 指标 `trace.service.errors` 按接口观察：`entry_type = http` 限定 HTTP 入口，`http.status_code = 500` 精确筛选 500，`http.status_code = 5*` 筛选全部 5xx；接口维度使用 `operation` 和 `span.name`。
 

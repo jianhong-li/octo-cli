@@ -1,6 +1,7 @@
 interface Token {
   kind: 'word' | 'symbol' | 'literal';
   value: string;
+  start: number;
 }
 
 const spaceAggregate =
@@ -26,6 +27,7 @@ function tokenize(query: string): Token[] | undefined {
       i++;
       continue;
     }
+    const start = i;
     if (char === '"' || char === "'") {
       const quote = char;
       i++;
@@ -33,22 +35,22 @@ function tokenize(query: string): Token[] | undefined {
         i += query[i] === '\\' ? 2 : 1;
       }
       if (i >= query.length) return undefined;
-      tokens.push({ kind: 'literal', value: '' });
+      tokens.push({ kind: 'literal', value: '', start });
       i++;
       continue;
     }
     if (char === '\\') {
-      tokens.push({ kind: 'literal', value: '' });
+      tokens.push({ kind: 'literal', value: '', start });
       i += 2;
       continue;
     }
     word.lastIndex = i;
     const match = word.exec(query);
     if (match) {
-      tokens.push({ kind: 'word', value: match[0] });
+      tokens.push({ kind: 'word', value: match[0], start });
       i = word.lastIndex;
     } else {
-      tokens.push({ kind: 'symbol', value: char });
+      tokens.push({ kind: 'symbol', value: char, start });
       i++;
     }
   }
@@ -106,4 +108,36 @@ export function getMetricGroupingHint(query: string): string | undefined {
   }
   if (stack.length) return undefined;
   return hint ? `${hint} See octo metrics query --help.` : undefined;
+}
+
+/** Distinguish PromQL =~ "regex" from quoted text and literal ~prefix values. */
+export function getMetricRegexHint(query: string): string | undefined {
+  const tokens = tokenize(query);
+  if (!tokens) return undefined;
+  let filterDepth = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.kind !== 'symbol') continue;
+    if (token.value === '{') filterDepth++;
+    else if (token.value === '}') filterDepth--;
+    else if (
+      filterDepth > 0 &&
+      token.value === '=' &&
+      query[token.start + 1] === '~' &&
+      tokens[i + 1]?.value === '~' &&
+      tokens[i + 2]?.kind === 'literal' &&
+      ['"', "'"].includes(query[tokens[i + 2].start])
+    ) {
+      return 'PromQL =~ is not supported by Metric QL. Use = for exact matches, IN (...) for a value list, or = with * for wildcard matching (e.g. service = leo*). Regex patterns and wildcards have different semantics; choose the intended filter rather than replacing the operator mechanically. See octo metrics query --help.';
+    }
+  }
+  return undefined;
+}
+
+/** Build additive guidance from known syntax mistakes after a backend failure. */
+export function getMetricSyntaxHints(query: string, message: string): string[] {
+  return [
+    /\bby\b/i.test(message) ? getMetricGroupingHint(query) : undefined,
+    getMetricRegexHint(query),
+  ].filter((hint): hint is string => hint !== undefined);
 }

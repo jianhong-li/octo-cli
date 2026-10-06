@@ -341,6 +341,8 @@ ${metricGroupingNotes}
   Tag filters: tag = value, tag != value, tag = * (wildcard), tag in (a,b).
   Commas between filters mean AND: m{service = api, env != test}.
   PromQL's =~ operator is not supported.
+  On syntax failure, tag =~ "regex" gets a targeted hint: use =, IN (...), or
+  = with * wildcards. Regex/glob semantics differ; no automatic conversion.
   Time functions (fn: sum/avg/min/max; rollup/advanced_rollup also accept default):
     rollup(m, fn, interval): e.g. sum(rollup(counter{}, sum, 1m)).
     advanced_rollup(m, fn, window, granularity): both time arguments required;

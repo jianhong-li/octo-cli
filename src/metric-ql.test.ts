@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OctoClient } from './client.js';
 import { registerCommands } from './commands.js';
 import { ApiError, runCli } from './errors.js';
-import { getMetricGroupingHint } from './metric-ql.js';
+import { getMetricGroupingHint, getMetricRegexHint } from './metric-ql.js';
 
-describe('metric grouping guidance', () => {
+describe('metric QL guidance', () => {
   afterEach(() => {
     process.exitCode = 0;
     vi.unstubAllGlobals();
@@ -87,6 +87,132 @@ describe('metric grouping guidance', () => {
     vi.stubGlobal('fetch', fetch);
     return fetch;
   }
+
+  it.each([
+    'sum(trace.service.requests{service =~ "leo.*"})',
+    "sum(m{service =~ 'leo.*'}) by (service)",
+    'as_rate(sum(m{service\n=~ \n"leo.*"}) by (service))',
+    'sum(m{env = online, service =~ "leo.*"})',
+  ])('explains the unsupported PromQL operator in %s', (query) => {
+    const hint = getMetricRegexHint(query);
+    expect(hint).toContain('PromQL =~ is not supported');
+    expect(hint).toContain('= for exact matches');
+    expect(hint).toContain('IN (...)');
+    expect(hint).toContain('service = leo*');
+    expect(hint).toContain('different semantics');
+  });
+
+  it.each([
+    'sum(m{service = "literal =~ text"})',
+    "sum(m{service = 'literal =~ text'})",
+    String.raw`sum(m{service = "escaped \" =~ text"})`,
+    'sum(m{service = leo*})',
+    'sum(m{service IN (leo-exam,leo-app)})',
+    'sum(m{service regexp "leo.*"})',
+    'sum(m{service=~prefix})',
+    'sum(m{service = "~prefix"})',
+    'sum(m{service = ~ "leo.*"})',
+    String.raw`sum(m{service \=~ "leo.*"})`,
+    'sum(m{service =~ "unterminated})',
+    'sum(m{}) =~ "leo.*"',
+  ])(
+    'does not flag quoted, literal, escaped, or non-filter =~ in %s',
+    (query) => {
+      expect(getMetricRegexHint(query)).toBeUndefined();
+    }
+  );
+
+  it.each(['timeseries', 'point'])(
+    'adds regex guidance to %s errors without requiring by in the backend message',
+    async (kind) => {
+      const message = `extraneous input '"leo.*"' expecting '}'`;
+      const fetch = reject(-201, message);
+      const queries = [
+        { id: 'A', query: 'sum(m{service =~ "leo.*"})', dataSource: 'metric' },
+        {
+          id: 'B',
+          query: 'sum(m{service = "literal =~ text"})',
+          dataSource: 'metric',
+        },
+      ];
+      const client = new OctoClient('https://example.com', { token: 'test' });
+      const request =
+        kind === 'timeseries'
+          ? client.metricsTimeseries({ env: 'online', from: 1, to: 2, queries })
+          : client.metricsQuery({ env: 'online', to: 2, queries });
+      const error = await request.catch((error) => error);
+      if (!(error instanceof ApiError)) throw error;
+      expect(error).toMatchObject({ message, code: -201, status: 400 });
+      expect(error.hints).toHaveLength(1);
+      expect(error.hints?.[0]).toContain('Query "A": PromQL =~');
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(fetch.mock.calls[0][1].body)).queries).toEqual(
+        queries
+      );
+    }
+  );
+
+  it.each([-17, -211])(
+    'does not diagnose regex on non-syntax API code %s',
+    async (code) => {
+      reject(code, 'request failed');
+      const client = new OctoClient('https://example.com', { token: 'test' });
+      await expect(
+        client.metricsQuery({
+          env: 'online',
+          to: 2,
+          queries: [
+            {
+              id: 'A',
+              query: 'sum(m{service =~ "leo.*"})',
+              dataSource: 'metric',
+            },
+          ],
+        })
+      ).rejects.toMatchObject({ code, hints: undefined });
+    }
+  );
+
+  it.each([false, true])(
+    'CLI formats regex guidance and preserves failures (JSON: %s)',
+    async (json) => {
+      const message = `extraneous input '"leo.*"' expecting '}'`;
+      reject(-201, message);
+      vi.stubEnv('OCTOPUS_TOKEN', 'test');
+      vi.stubEnv('OCTOPUS_BASE_URL', 'https://example.com');
+      const stderr = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined);
+      const stdout = vi
+        .spyOn(console, 'log')
+        .mockImplementation(() => undefined);
+      const program = new Command().option('--json-errors');
+      registerCommands(program);
+      await runCli(program, [
+        'node',
+        'octo',
+        ...(json ? ['--json-errors'] : []),
+        'metrics',
+        'query',
+        'sum(m{service =~ "leo.*"})',
+        '-e',
+        'online',
+      ]);
+      expect(process.exitCode).toBe(1);
+      expect(stdout).not.toHaveBeenCalled();
+      expect(stderr).toHaveBeenCalledTimes(1);
+      const rendered = stderr.mock.calls[0][0];
+      if (json) {
+        const error = JSON.parse(rendered).error;
+        expect(error).toMatchObject({ message, status: 400, code: -201 });
+        expect(error.hints).toHaveLength(1);
+        expect(error.hints[0]).toContain('PromQL =~');
+      } else {
+        expect(rendered).toContain(message);
+        expect(rendered).toContain('\nHint: Query "A": PromQL =~');
+      }
+    }
+  );
 
   it.each(['timeseries', 'point'])(
     'preserves %s failures and identifies both bad queries without rewriting/retrying',

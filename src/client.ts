@@ -4,7 +4,7 @@ import {
   validateEnvironment,
 } from './config.js';
 import { ApiError } from './errors.js';
-import { getMetricGroupingHint } from './metric-ql.js';
+import { getMetricSyntaxHints } from './metric-ql.js';
 
 declare const __PKG_VERSION__: string;
 
@@ -722,17 +722,15 @@ export class OctoClient {
     try {
       return await this.post(path, params);
     } catch (error) {
-      if (
-        error instanceof ApiError &&
-        error.code === -201 &&
-        /\bby\b/i.test(error.message)
-      ) {
+      if (error instanceof ApiError && error.code === -201) {
         const hints = params.queries.flatMap(({ id, query }) => {
-          const hint =
+          const queryHints =
             typeof query === 'string'
-              ? getMetricGroupingHint(query)
-              : undefined;
-          return hint ? [`Query ${JSON.stringify(id)}: ${hint}`] : [];
+              ? getMetricSyntaxHints(query, error.message)
+              : [];
+          return queryHints.map(
+            (hint) => `Query ${JSON.stringify(id)}: ${hint}`
+          );
         });
         if (hints.length) error.hints = hints;
       }
