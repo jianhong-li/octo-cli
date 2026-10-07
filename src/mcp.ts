@@ -1082,7 +1082,8 @@ export function getMcpTools() {
     {
       name: 'octo_metrics_query',
       description:
-        'Query Octopus metrics timeseries. Use metric query syntax like "sum(metric_name{tag=value}.as_count)". ' +
+        'Query Octopus metrics timeseries. Use Metric QL such as "as_count(sum(metric_name{tag=value}) by (service))". ' +
+        'by is a space-aggregation suffix inside as_count/as_rate, not a suffix of the wrapper. ' +
         'Daily (1d) aggregation is aligned to midnight in UTC+8 (Beijing time).',
       inputSchema: {
         type: 'object' as const,
@@ -1094,7 +1095,7 @@ export function getMcpTools() {
             type: 'array',
             items: { type: 'string' },
             description:
-              'Metric query strings, e.g. ["sum(http_requests{service=myapp}.as_count)"]',
+              'Metric QL strings, e.g. ["as_count(sum(http_requests{service=myapp}) by (service))"]',
           },
           point_count: {
             type: 'number',
@@ -1107,7 +1108,8 @@ export function getMcpTools() {
     {
       name: 'octo_metrics_point',
       description:
-        'Query Octopus metrics at one point in time. Use metric query syntax like "sum(metric_name{tag=value}.as_count)".',
+        'Query Octopus metrics at one point in time. Use Metric QL such as "as_count(sum(metric_name{tag=value}) by (service))". ' +
+        'by is a space-aggregation suffix inside as_count/as_rate, not a suffix of the wrapper.',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -1121,7 +1123,7 @@ export function getMcpTools() {
             type: 'array',
             items: { type: 'string' },
             description:
-              'Metric query strings, e.g. ["sum(http_requests{service=myapp}.as_count)"]',
+              'Metric QL strings, e.g. ["as_count(sum(http_requests{service=myapp}) by (service))"]',
           },
         },
         required: ['queries'],

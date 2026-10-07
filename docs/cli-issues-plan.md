@@ -1,6 +1,6 @@
 # CLI 修复计划与验收记录
 
-本轮来自 `kanyun-inc/octo-cli` 中 jianhong-li 提交的 12 个 open issues，代码基于 v1.6.0，在 `feature/cli-issues-and-help` 上迭代，推送目标是 `jianhong-li/octo-cli`。当前不向源仓库提交 PR，也不改主 skill 或子 skill 的组织。
+本轮来自 `kanyun-inc/octo-cli` 中 jianhong-li 提交的 12 个 open issues，代码基于 v1.6.0，在 `feature/cli-issues-and-help` 上迭代，先推送到 `jianhong-li/octo-cli`。2026-10-07 用户确认向源仓库提交第一阶段 PR；不重构主 skill 或子 skill 的组织，仅修正与当前 CLI 不一致的示例。
 
 ## 工作边界
 
@@ -82,3 +82,12 @@ CLI 的 help 承担命令、参数、默认值、限制、示例和输出契约�
 - HTTP/API 或文件失败均非零退出；临时文件失败时清理，旧文件不变。文件成功写入后才输出数据；脚本只在退出码 0 后读元数据。父目录必须已存在，各查询独立使用 cursor 文件。
 - help/README 说明三态、成功与失败行为、固定绝对窗口和排序方向、显式参数续页、可选字段存在性判断；JSONL stdout 不掺入 metadata。
 - 新增 48 个回归用例，288 个测试及四项检查通过。构建后的实际 CLI 进程验证每页一次请求、JSONL 逐记录、续页参数与固定窗口、终页/未知空页覆盖、pre 边界、Trace sort 值、HTTP 失败和真实目录权限导致的文件失败保留旧文件，以及无残留临时文件。原有实际进程 smoke 同样通过。
+
+## 第一阶段 PR 前复查（2026-10-07）
+
+- Metric QL help 补充 `by` 归属、正反例、9 类场景、两级 labelList/values 解析和指标发现线索；语法失败后追加定向 `by` / PromQL `=~` 提示，保留原始错误、非零退出码和空 stdout，JSON 错误可选带 `hints`。
+- 清理内置 MCP 工具描述／参数示例及主 skill 中的 6 处旧 `.as_count` 示例，统一为 `as_count(空间聚合 + by)`；主 skill 的 RUM detail 加列表 timestamp，部署事件示例使用前缀通配，不改变整体工作流或子 skill 组织。
+- 两个新增 MCP 回归用例从工具元数据取得真实示例，验证按原样发送并保留分组响应；全量 351 个测试、typecheck、lint、build 通过。历史上的 288 等数字是各阶段验证快照，不代表当前总数。
+- 原有实际 CLI 进程／cursor smoke 和构建后 MCP stdio 的时序／点查分组查询均通过。
+- 严格 Codex skill 校验器提示主 skill 原有 `version/author/tags/user-invocable/argument-hint` frontmatter 不在其允许列表；已确认与上游 main 基线完全相同，此次 frontmatter 不变，兼容性调整留到第二阶段。
+- 后续保留：#54 的 Issue 分页依赖后端；#55/#58 及 #56 的主 skill 路由／工作流部分仍未完成；限流退避、日志时间分桶、指标名称目录和保留期警告尚未实现。独立 OCT-MCP 的 `octopus_*` Java 工具问题不属于本仓库 `octo_*` 服务。

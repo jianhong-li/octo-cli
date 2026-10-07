@@ -418,6 +418,51 @@ describe('MCP tools', () => {
     });
   });
 
+  it.each(['octo_metrics_query', 'octo_metrics_point'])(
+    '%s advertised grouped Count QL dispatches unchanged and preserves grouped results',
+    async (name) => {
+      const tool = getMcpTools().find((tool) => tool.name === name);
+      expect(tool).toBeDefined();
+      expect(tool?.description).not.toMatch(/\.as_(count|rate)/i);
+      const description = (
+        tool?.inputSchema.properties.queries as { description: string }
+      ).description;
+      const query = description.match(/\["([^"]+)"\]/)?.[1];
+      expect(query).toBe(
+        'as_count(sum(http_requests{service=myapp}) by (service))'
+      );
+      const grouped = [
+        {
+          id: 'A',
+          labelList: [[{ key: 'service', value: 'myapp' }]],
+          values: name === 'octo_metrics_query' ? [[12]] : [12],
+          ...(name === 'octo_metrics_query'
+            ? { times: [1789833600000] }
+            : { time: 1789833600000 }),
+        },
+      ];
+      const calls = captureFetch(grouped);
+      const result = await handleMcpTool(
+        name,
+        {
+          queries: [query],
+          env: 'online',
+          from: 1789747200000,
+          to: 1789833600000,
+          at: 1789833600000,
+        },
+        testClient()
+      );
+      expect(result).toEqual({
+        content: [{ type: 'text', text: JSON.stringify(grouped, null, 2) }],
+      });
+      expect(calls).toHaveLength(1);
+      expect(JSON.parse(calls[0].body).queries).toEqual([
+        { id: 'A', query, dataSource: 'metric' },
+      ]);
+    }
+  );
+
   it('dispatches trace aggregate and metrics point tools', async () => {
     const client = testClient();
     const calls = captureFetch();
